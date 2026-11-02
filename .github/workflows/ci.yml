@@ -32,6 +32,10 @@ jobs:
         run: npm run test:ai-timeout
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
+      - name: Vision boxes unit tests
+        run: npm run test:vision-boxes
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
 
   test-e2e:
     name: Test E2E (Node ${{ matrix.node }})
