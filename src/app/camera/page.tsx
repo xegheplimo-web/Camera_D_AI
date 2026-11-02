@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { PlusCircle, Activity, AlertTriangle, Wifi } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PlusCircle, Activity, AlertTriangle, Wifi, Plus, RadioTower } from "lucide-react";
 import CameraView, { type Cam } from "@/components/CameraView";
-import CameraDiscovery from "@/components/CameraDiscovery";
+import CameraDiscovery, { type DiscoveryControls } from "@/components/CameraDiscovery";
 import EventDetail from "@/components/EventDetail";
 import { Card, EventRow, type EventItem, EventBadge } from "@/components/ui";
 import { api, getDeviceId } from "@/lib/client";
@@ -18,12 +18,20 @@ export default function CameraPage() {
   const [open, setOpen] = useState<EventItem | null>(null);
   const [manual, setManual] = useState({ label: "", note: "", priority: "normal" });
   const [saving, setSaving] = useState(false);
+  const [role, setRole] = useState<string>("viewer");
+  const discovery = useRef<DiscoveryControls | null>(null);
+  const registerDiscovery = useCallback((c: DiscoveryControls | null) => { discovery.current = c; }, []);
 
   const load = useCallback(async () => {
     const d = await api<{ cameras: DashCam[] }>("/api/dashboard");
     setCams(d.cameras);
     setCamId((c) => c ?? d.cameras[0]?.id ?? null);
   }, []);
+
+  useEffect(() => {
+    api<{ role: string }>("/api/settings").then((r) => setRole(r.role)).catch(() => {});
+  }, []);
+  const canManage = role === "owner" || role === "operator";
 
   const loadEvents = useCallback(async (id: number) => {
     const start = new Date();
@@ -48,6 +56,11 @@ export default function CameraPage() {
   const refresh = () => {
     load();
     if (camId) loadEvents(camId);
+  };
+
+  const onCameraAdded = (id?: number) => {
+    void load();
+    if (id) setCamId(id);
   };
 
   const createManual = async () => {
@@ -84,7 +97,7 @@ export default function CameraPage() {
           </select>
         </div>
         {cam ? <CameraView cam={cam} onEvent={refresh} /> : <div className="aspect-video animate-pulse rounded-xl bg-slate-800/50" />}
-        <CameraDiscovery cameras={cams} onAdded={refresh} />
+        <CameraDiscovery cameras={cams} onAdded={onCameraAdded} canManage={canManage} onControlsReady={registerDiscovery} />
 
         <Card title="Dòng thời gian 24 giờ">
           <div className="flex h-20 items-end gap-1">
@@ -110,15 +123,30 @@ export default function CameraPage() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={c.thumbnail ?? ""} alt="" className="h-12 w-20 rounded-lg object-cover" />
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold">{c.name}</div>
-                  <div className="text-xs text-slate-400">{c.location} · {c.sourceType === "webcam" ? "Webcam" : "Mô phỏng"}</div>
+                  <div className="font-semibold">{c.name}{c.enabled === false && <span className="ml-1 text-xs text-amber-300">(tắt)</span>}</div>
+                  <div className="text-xs text-slate-400">{c.location} · {c.sourceType === "webcam" ? "Webcam" : c.sourceType === "rtsp" ? `IP/RTSP${c.sourceHost ? ` · ${c.sourceHost}` : ""}` : "Mô phỏng"}</div>
                 </div>
                 <div className="text-right text-[11px]">
-                  <div className="flex items-center justify-end gap-1 text-emerald-300"><Wifi className="h-3 w-3" /> {c.status === "online" ? "Online" : "Offline"}</div>
+                  <div className={`flex items-center justify-end gap-1 ${c.sourceType === "rtsp" ? (c.streamName ? "text-emerald-300" : "text-amber-300") : c.status === "online" ? "text-emerald-300" : "text-slate-400"}`}>
+                    <Wifi className="h-3 w-3" /> {c.sourceType === "rtsp" ? (c.streamName ? "Đã đăng ký" : "Chưa kết nối") : c.status === "online" ? "Online" : "Offline"}
+                  </div>
                   <div className="text-slate-400">{c.today} hôm nay</div>
                 </div>
               </button>
             ))}
+            {!cams.some((c) => c.sourceType !== "demo") && (
+              <div className="rounded-xl border border-dashed border-cyan-400/30 bg-cyan-500/5 p-3 text-center">
+                <p className="text-xs text-slate-300">Chưa có camera thật — danh sách trên chỉ là nguồn mô phỏng.</p>
+                {canManage ? (
+                  <div className="mt-2 flex flex-wrap justify-center gap-2">
+                    <button onClick={() => discovery.current?.focusForm()} className="btn btn-primary text-xs"><Plus className="h-3.5 w-3.5" /> Thêm camera RTSP</button>
+                    <button onClick={() => discovery.current?.scan()} className="btn btn-ghost text-xs"><RadioTower className="h-3.5 w-3.5" /> Quét ONVIF</button>
+                  </div>
+                ) : (
+                  <p className="mt-1 text-[11px] text-slate-400">Chỉ owner/operator thêm được camera IP.</p>
+                )}
+              </div>
+            )}
           </div>
         </Card>
 

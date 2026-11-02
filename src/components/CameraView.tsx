@@ -7,7 +7,7 @@ import { api, drawToCanvas, uploadDataUrl, blobToDataUrl, getDetector } from "@/
 import { vi } from "@/lib/labels";
 import { useApp } from "./AppState";
 
-export type Cam = { id: number; code: string; name: string; location: string; sourceType: string; thumbnail: string | null; status: string };
+export type Cam = { id: number; code: string; name: string; location: string; sourceType: string; thumbnail: string | null; status: string; sourceHost?: string | null; streamName?: string | null; enabled?: boolean };
 
 type Track = { id: number; cls: string; cx: number; cy: number; seen: number; side: number; pending: number; pendingCount: number; lastCross: number; seq: number };
 type Box = { x: number; y: number; w: number; h: number; label: string; score: number; id?: number; cls: string };

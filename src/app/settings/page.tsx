@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Video, Volume2, Smartphone, Database, ShieldCheck, ScrollText, Trash2, Plus, Cpu, CheckCircle2, Circle, Users, HardDrive, Gauge, Pencil } from "lucide-react";
 import { Card, Badge } from "@/components/ui";
 import { useApp } from "@/components/AppState";
 import { api, getDeviceId } from "@/lib/client";
 import { NoPermissionState } from "@/components/states";
 
-type Cam = { id: number; code: string; name: string; location: string; sourceType: string; status: string; thumbnail: string | null; enabled: boolean; retentionDays: number | null };
+type Cam = { id: number; code: string; name: string; location: string; sourceType: string; status: string; thumbnail: string | null; enabled: boolean; retentionDays: number | null; sourceHost: string | null };
 type Admin = {
   logs: { id: number; actor: string | null; actorRole: string | null; action: string; targetType: string | null; targetId: string | null; device: string | null; detail: string | null; createdAt: string }[];
   demoEvents: number;
@@ -27,7 +27,6 @@ export default function SettingsPage() {
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [role, setRole] = useState<string>("viewer");
-  const [form, setForm] = useState({ name: "", location: "", sourceType: "demo" });
   const [editCamId, setEditCamId] = useState<number | null>(null);
   const [camDraft, setCamDraft] = useState({ name: "", location: "", enabled: true, retentionDays: "" });
   const [phrase, setPhrase] = useState("");
@@ -53,13 +52,6 @@ export default function SettingsPage() {
     }
   };
 
-  const addCam = async () => {
-    if (!form.name.trim() || !form.location.trim()) return;
-    await api("/api/cameras", { method: "POST", json: form });
-    setForm({ name: "", location: "", sourceType: "demo" });
-    load();
-  };
-
   const startEditCam = (c: Cam) => {
     setEditCamId(c.id);
     setCamDraft({ name: c.name, location: c.location, enabled: c.enabled, retentionDays: c.retentionDays == null ? "" : String(c.retentionDays) });
@@ -81,14 +73,14 @@ export default function SettingsPage() {
   };
 
   const delCam = async (c: Cam) => {
-    if (!confirm(`Xoá camera ${c.name}? Stream go2rtc liên quan sẽ được gỡ.`)) return;
+    if (!confirm(`Xoá camera "${c.name}" (${c.code})?\n\nSẽ gỡ stream go2rtc và đường dẫn nguồn đã lưu (mã hoá). Nếu còn sự kiện hoặc ảnh liên quan, hệ thống sẽ hỏi thêm trước khi xoá.`)) return;
     setErr(null);
     try {
       const run = async (cascade: boolean): Promise<{ eventsRemoved?: number } | null> => {
         const res = await fetch(`/api/cameras/${c.id}?confirm=yes${cascade ? "&cascade=yes" : ""}`, { method: "DELETE" });
         const data = await res.json().catch(() => ({}));
         if (res.status === 409 && !cascade) {
-          if (confirm(`Camera còn ${data.events ?? "?"} sự kiện tham chiếu. Xoá kèm toàn bộ sự kiện đó?`)) return run(true);
+          if (confirm(`Camera còn ${data.events ?? "?"} sự kiện tham chiếu (ảnh bằng chứng gắn sẽ mất liên kết camera). Xoá kèm toàn bộ sự kiện đó?`)) return run(true);
           return null;
         }
         if (!res.ok) throw new Error([data.title, data.detail].filter(Boolean).join(": ") || `Lỗi ${res.status}`);
@@ -121,8 +113,10 @@ export default function SettingsPage() {
 
   const canManage = role === "owner" || role === "operator";
   const isOwner = role === "owner";
+  // SSR phải khớp client lần render đầu — "—" phía server, mã thật sau hydrate (tránh React #418).
+  const deviceId = useSyncExternalStore(() => () => {}, () => getDeviceId(), () => "—");
   const wizard = [
-    { done: cams.length > 0, label: "Kết nối camera (webcam hoặc nguồn mô phỏng)", href: "#cameras" },
+    { done: cams.length > 0, label: "Kết nối camera (RTSP, webcam hoặc nguồn mô phỏng)", href: "#cameras" },
     { done: true, label: "Kiểm tra loa: nghe thử giọng D-AI Bot", href: "#audio" },
     { done: !settings?.demoMode, label: "Tắt dữ liệu mẫu trước khi dùng thật", href: "#data" },
     { done: !!admin, label: "Duyệt thiết bị và phiên đăng nhập", href: "#devices" },
@@ -185,10 +179,10 @@ export default function SettingsPage() {
                     <img src={c.thumbnail ?? ""} alt="" className="h-10 w-16 rounded-lg object-cover" />
                     <div className="flex-1">
                       <div className="text-sm font-semibold">{c.code} · {c.name}{!c.enabled && <span className="ml-1 text-amber-300">(tắt)</span>}</div>
-                      <div className="text-xs text-[#a9bad2]">{c.location}{c.retentionDays ? ` · giữ ${c.retentionDays}d` : ""}</div>
+                      <div className="text-xs text-[#a9bad2]">{c.location}{c.retentionDays ? ` · giữ ${c.retentionDays}d` : ""}{c.sourceType === "rtsp" && c.sourceHost ? ` · ${c.sourceHost}` : ""}</div>
                     </div>
-                    <Badge color={c.sourceType === "webcam" ? "cyan" : "slate"}>{c.sourceType === "webcam" ? "Webcam" : "Nguồn mẫu"}</Badge>
-                    <Badge color={c.status === "demo" ? "slate" : c.status === "online" ? "emerald" : "amber"}>{c.status === "demo" ? "demo" : c.status}</Badge>
+                    <Badge color={c.sourceType === "webcam" ? "cyan" : c.sourceType === "rtsp" ? "sky" : "slate"}>{c.sourceType === "webcam" ? "Webcam" : c.sourceType === "rtsp" ? "IP/RTSP" : "Mô phỏng"}</Badge>
+                    <Badge color={c.status === "demo" ? "slate" : c.status === "online" ? "emerald" : c.status === "degraded" ? "sky" : "amber"}>{c.status === "demo" ? "demo" : c.status === "degraded" ? "đã đăng ký" : c.status}</Badge>
                     {canManage && (
                       <button onClick={() => startEditCam(c)} className="btn btn-ghost px-2 py-1 text-xs" aria-label={`Sửa ${c.name}`} title="Sửa camera"><Pencil className="h-3.5 w-3.5" /></button>
                     )}
@@ -203,18 +197,12 @@ export default function SettingsPage() {
           {!canManage ? (
             <div className="mt-3"><NoPermissionState what="quản lý camera" /></div>
           ) : (
-            <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Tên camera" className="input" />
-              <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Vị trí" className="input" />
-              <select value={form.sourceType} onChange={(e) => setForm({ ...form, sourceType: e.target.value })} className="input" aria-label="Nguồn">
-                <option value="demo">Mô phỏng</option>
-                <option value="webcam">Webcam</option>
-              </select>
-              <button onClick={addCam} className="btn btn-primary"><Plus className="h-4 w-4" /> Thêm</button>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Link href="/camera" className="btn btn-primary"><Plus className="h-4 w-4" /> Thêm camera</Link>
+              <span className="text-[11px] text-[#a9bad2]">Thêm camera IP/RTSP (quét ONVIF hoặc nhập URL), webcam và nguồn mô phỏng tại trang Camera.</span>
             </div>
           )}
-          {form.sourceType === "rtsp" && <p className="mt-2 text-[11px] text-amber-200">RTSP/IP camera cần media gateway riêng — chưa hỗ trợ.</p>}
-          <p className="mt-2 text-[11px] text-[#a9bad2]">Camera IP/RTSP và ghi hình 24/7 khi đóng trình duyệt <b className="text-amber-300">chưa hỗ trợ</b> trong bản web này; cần dịch vụ nền trên Windows (giai đoạn G3).</p>
+          <p className="mt-2 text-[11px] text-[#a9bad2]">Ghi hình 24/7 khi đóng trình duyệt <b className="text-amber-300">chưa hỗ trợ</b> trong bản web này; cần dịch vụ nền trên Windows (giai đoạn G3).</p>
         </Card>
 
         <Card title={<span id="audio" className="flex items-center gap-2"><Volume2 className="h-4 w-4 text-violet-300" /> Giọng nói & âm thanh</span>}>
@@ -264,7 +252,7 @@ export default function SettingsPage() {
         </Card>
 
         <Card title={<span id="devices" className="flex items-center gap-2"><Users className="h-4 w-4 text-sky-300" /> Phiên & thiết bị</span>}>
-          <p className="mb-2 text-xs text-[#a9bad2]">Mã thiết bị trình duyệt: <span className="font-mono text-cyan-200">{typeof window !== "undefined" ? getDeviceId() : "—"}</span> (chỉ để hiển thị, không dùng xác thực).</p>
+          <p className="mb-2 text-xs text-[#a9bad2]">Mã thiết bị trình duyệt: <span className="font-mono text-cyan-200">{deviceId}</span> (chỉ để hiển thị, không dùng xác thực).</p>
           {admin?.sessions?.length ? (
             <div className="scroll-thin max-h-56 space-y-1 overflow-auto text-xs">
               {admin.sessions.map((s) => (
