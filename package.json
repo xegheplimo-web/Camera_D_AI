@@ -8,8 +8,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:camera": "node --import tsx --test tests/camera-product.unit.test.ts",
-    "test:ai": "node --import tsx --test tests/ai-unit.test.ts tests/ai-integration.test.ts",
+    "test:ai": "node --import tsx --test tests/ai-unit.test.ts tests/ai-integration.test.ts tests/detector.test.ts",
     "test:scope": "node --import tsx --test tests/scope-rbac.test.ts",
+    "test:retention": "node --import tsx --test tests/retention.test.ts",
     "test:google": "node --import tsx --test tests/google-auth.unit.test.ts",
     "db:push:dev": "drizzle-kit push"
   },

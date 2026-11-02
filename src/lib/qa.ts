@@ -28,7 +28,7 @@ export async function thumbMap(session: SessionPayload, assetIds: (number | null
   const map = new Map<number, string>();
   if (!ids.length) return map;
   const rows = await db.select({ id: assets.id, url: assets.url, kind: assets.kind }).from(assets).where(and(inArray(assets.id, ids), assetReadScope(session)));
-  for (const r of rows) map.set(r.id, r.url ?? `/api/assets/${r.id}`);
+  for (const r of rows) map.set(r.id, r.url && !r.url.startsWith("local:") ? r.url : `/api/assets/${r.id}`);
   return map;
 }
 

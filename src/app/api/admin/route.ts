@@ -4,6 +4,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { audit } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
 import { ensureSeed, reseed } from "@/lib/seed";
+import { purgeDemoData } from "@/lib/retention";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,8 @@ export async function GET() {
     .select({ demo: sql<number>`count(*) filter (where ${events.source} = 'demo')::int`, live: sql<number>`count(*) filter (where ${events.source} <> 'demo')::int` })
     .from(events);
   const [st] = await db.select({ bytes: sql<number>`coalesce(sum(${assets.sizeBytes}),0)::bigint` }).from(assets);
+  const [dx] = await db.select({ c: sql<number>`count(*)::int` }).from(extractions).where(eq(extractions.source, "demo"));
+  const [da] = await db.select({ c: sql<number>`count(*)::int` }).from(assets).where(eq(assets.origin, "demo"));
   const activeSessions = await db
     .select({ id: sessions.id, user: users.displayName, role: users.role, device: sessions.device, createdAt: sessions.createdAt, lastSeenAt: sessions.lastSeenAt, revokedAt: sessions.revokedAt })
     .from(sessions)
@@ -28,6 +31,7 @@ export async function GET() {
     logs,
     demoEvents: d.demo,
     liveEvents: d.live,
+    demo: { events: d.demo, extractions: dx.c, assets: da.c },
     storageBytes: Number(st.bytes),
     visionCloud: Boolean(process.env.OPENAI_API_KEY),
     sessions: activeSessions,
@@ -49,6 +53,12 @@ export async function POST(req: Request) {
   const action = b?.action;
   if (b?.confirmPhrase !== DANGER_PHRASE) {
     return Response.json({ title: "Cụm xác nhận không đúng", detail: `Nhập chính xác “${DANGER_PHRASE}”`, status: 400 }, { status: 400 });
+  }
+  if (action === "purge_demo") {
+    // FK-safe trong purgeDemoData: extractions demo → events demo → assets origin='demo'
+    // (gỡ con trỏ từ hàng live trước; asset demo còn được live extraction trỏ thì giữ).
+    const report = await db.transaction(async (tx) => purgeDemoData(tx, { name: auth.session.name, role: auth.session.role, device: auth.session.device }));
+    return Response.json({ ok: true, ...report });
   }
   if (action === "clear_demo") {
     await db.delete(events).where(eq(events.source, "demo"));

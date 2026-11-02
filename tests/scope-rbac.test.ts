@@ -158,6 +158,15 @@ test("operator cannot use owner-only actions (admin reset, delete, remote toggle
   assert.equal((await call("/api/settings", "PATCH", { remoteProcessingAllowed: true }, o)).status, 403);
 });
 
+test("orchestration API is owner-only platform surface (T-1301)", async () => {
+  assert.equal((await call("/api/orchestration", "GET", undefined, A("viewer"))).status, 403);
+  assert.equal((await call("/api/orchestration", "GET", undefined, A("operator"))).status, 403);
+  assert.equal((await call("/api/orchestration", "POST", { action: "probe", service: "hermes" }, A("operator"))).status, 403);
+  const owner = await call("/api/orchestration", "GET", undefined, A("owner"));
+  assert.equal(owner.status, 200);
+  assert.ok(Array.isArray(owner.data.services), "owner still receives services[] for the admin console");
+});
+
 test("operator keeps operator rights (export report, annotate shared event)", async () => {
   const o = A("operator");
   assert.equal((await call("/api/report", "GET", undefined, o)).status, 200);

@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     if (b.action === "draft") {
       const [row] = await db.insert(extractions).values({ assetId, note, title, tags, roi, taskType, ...meta, status: "DRAFT", source, createdBy: auth.session.name, userId: auth.session.sub }).returning();
       await audit("note.save", { targetType: "extraction", targetId: row.id });
-      return Response.json({ ...row, thumb: asset.url ?? `/api/assets/${asset.id}` }, { status: 201 });
+      return Response.json({ ...row, thumb: asset.url && !asset.url.startsWith("local:") ? asset.url : `/api/assets/${asset.id}` }, { status: 201 });
     }
     const settings = await getSettings();
     // Ignore all client-supplied local detections/OCR/counts. Worker reads stored original pixels.

@@ -50,6 +50,11 @@ function gateway(): string {
   return `http://${addr === "::1" ? "[::1]" : addr}:1984`;
 }
 
+/** Base URL của go2rtc API (loopback-only) cho các consumer server-side khác (detector). */
+export function go2rtcBase(): string {
+  return gateway();
+}
+
 export async function ensureGo2rtcStream(streamName: string, source: string): Promise<void> {
   if (!/^dai_cam_[0-9]+$/.test(streamName)) throw new Error("Tên stream không hợp lệ");
   validateCameraUrl(source);
@@ -61,6 +66,15 @@ export async function ensureGo2rtcStream(streamName: string, source: string): Pr
   const abort = AbortSignal.timeout(5000);
   const res = await fetch(`${gateway()}/api/streams?${q}`, { method: "PUT", signal: abort, cache: "no-store" });
   if (!res.ok) throw new Error(`go2rtc từ chối kết nối (${res.status})`);
+}
+
+/** Gỡ stream khỏi go2rtc khi xoá camera; gọi best-effort — go2rtc chết không chặn xoá DB. */
+export async function removeGo2rtcStream(streamName: string): Promise<void> {
+  if (!/^dai_cam_[0-9]+$/.test(streamName)) throw new Error("Tên stream không hợp lệ");
+  const q = new URLSearchParams({ name: streamName });
+  q.append("src", streamName); // go2rtc bản cũ xoá theo src, bản mới theo name — gửi cả hai.
+  const res = await fetch(`${gateway()}/api/streams?${q}`, { method: "DELETE", signal: AbortSignal.timeout(5000), cache: "no-store" });
+  if (!res.ok) throw new Error(`go2rtc từ chối xoá stream (${res.status})`);
 }
 
 function streamTimeout(env: string | undefined, fallback: number, min: number): number {

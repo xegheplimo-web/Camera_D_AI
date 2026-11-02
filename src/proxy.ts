@@ -8,7 +8,7 @@ const PUBLIC = [/^\/login(?:\/|$)/, /^\/api\/auth\/(?:login|me|google)(?:\/|$)/,
 // Next.js 16 Proxy uses the Node runtime, so revoked DB sessions are checked for every protected request.
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
-  if (path === "/api/internal/jobs/dispatch") return NextResponse.next(); // constant-time service-token check in handler
+  if (path.startsWith("/api/internal/")) return NextResponse.next(); // constant-time service-token check in each handler
   if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
     const origin = req.headers.get("origin");
     if (origin) {

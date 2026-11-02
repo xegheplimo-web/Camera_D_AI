@@ -43,6 +43,7 @@ export async function ensureSettingsSeed() {
     { key: "retentionDays", value: 30 },
     { key: "remotePlayback", value: false },
     { key: "requireVerifiedForAnswers", value: false },
+    { key: "detectEnabled", value: false },
   ]);
 }
 
