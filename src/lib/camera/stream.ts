@@ -1,13 +1,16 @@
 /** Server-only go2rtc adapter. Never expose the go2rtc administrative API to browsers. */
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { isPrivateIPv4 } from "./onvif";
+import { isLanRtspHost, isLinkLocalIPv4 } from "./ipv4";
 
 export function validateCameraUrl(value: string): URL {
   if (typeof value !== "string" || value.length > 2048 || /[\r\n\x00-\x1f]/.test(value)) throw new Error("Địa chỉ RTSP không hợp lệ");
   let parsed: URL;
   try { parsed = new URL(value); } catch { throw new Error("Địa chỉ RTSP không hợp lệ"); }
-  if (!(["rtsp:", "rtsps:"].includes(parsed.protocol)) || !isPrivateIPv4(parsed.hostname)) {
-    throw new Error("Chỉ hỗ trợ RTSP tới địa chỉ IPv4 LAN riêng (10.x, 172.16–31.x, 192.168.x, 169.254.x)");
+  // T-1304: 169.254/16 link-local chỉ hợp lệ cho ONVIF discovery — làm nguồn RTSP
+  // trên VM/cloud sẽ chĩa go2rtc vào metadata service (169.254.169.254) → SSRF.
+  if (isLinkLocalIPv4(parsed.hostname)) throw new Error("Địa chỉ link-local không được phép cho nguồn RTSP");
+  if (!(["rtsp:", "rtsps:"].includes(parsed.protocol)) || !isLanRtspHost(parsed.hostname)) {
+    throw new Error("Chỉ hỗ trợ RTSP tới địa chỉ IPv4 LAN riêng (10.x, 172.16–31.x, 192.168.x)");
   }
   if (parsed.port && (+parsed.port < 1 || +parsed.port > 65535)) throw new Error("Cổng camera không hợp lệ");
   if (parsed.hash) throw new Error("RTSP URL không hỗ trợ fragment");

@@ -3,21 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RadioTower, RefreshCw, Plus, Wifi, ShieldAlert } from "lucide-react";
 import { api } from "@/lib/client";
+import { isLanRtspHost, isLinkLocalIPv4 } from "@/lib/camera/ipv4";
 
 type Device = { ip: string; endpoint: string; name: string; urn: string | null; scopes: string[] };
 type CameraRecord = { id: number; sourceType: string; sourceHost?: string | null };
 
 export type DiscoveryControls = { scan: () => void; focusForm: () => void };
 
-/** Mirror isPrivateIPv4()/validateCameraUrl() server-side (src/lib/camera) — cùng luật, kiểm tra sớm phía client. */
-function isPrivateIPv4(host: string): boolean {
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!m) return false;
-  const n = m.slice(1).map(Number);
-  if (n.some((v) => v > 255)) return false;
-  return n[0] === 10 || (n[0] === 172 && n[1] >= 16 && n[1] <= 31) || (n[0] === 192 && n[1] === 168) || (n[0] === 169 && n[1] === 254);
-}
-
+/** Cùng module luật với validateCameraUrl() server-side (src/lib/camera/ipv4) — kiểm tra sớm phía client. */
 function rtspInputError(value: string): string | null {
   const raw = value.trim();
   if (!raw) return "Nhập địa chỉ RTSP của camera.";
@@ -25,7 +18,8 @@ function rtspInputError(value: string): string | null {
   let u: URL;
   try { u = new URL(raw); } catch { return "Địa chỉ RTSP không hợp lệ."; }
   if (u.protocol !== "rtsp:" && u.protocol !== "rtsps:") return "Chỉ hỗ trợ URL bắt đầu bằng rtsp:// hoặc rtsps://.";
-  if (!isPrivateIPv4(u.hostname)) return "Chỉ hỗ trợ IPv4 LAN riêng (10.x, 172.16–31.x, 192.168.x, 169.254.x) — không nhận hostname hay IP public.";
+  if (isLinkLocalIPv4(u.hostname)) return "Địa chỉ link-local (169.254.x.x) không được phép cho nguồn RTSP.";
+  if (!isLanRtspHost(u.hostname)) return "Chỉ hỗ trợ IPv4 LAN riêng (10.x, 172.16–31.x, 192.168.x) — không nhận hostname, IP public, loopback hay CGNAT.";
   if (u.port && (+u.port < 1 || +u.port > 65535)) return "Cổng camera không hợp lệ.";
   if (u.hash) return "RTSP URL không hỗ trợ fragment (#…).";
   return null;

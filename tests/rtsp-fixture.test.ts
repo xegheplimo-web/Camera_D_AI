@@ -297,12 +297,13 @@ test("CAM-G2-001 deterministic RTSP fixture + lifecycle", { timeout: 900_000 }, 
     for (const bad of [
       "rtsp://8.8.8.8/live", "rtsp://127.0.0.1/live", "rtsp://[fe80::1]/live",
       "rtsp://[::1]/live", "rtsp://camera.lan/live", "http://192.168.99.10/live",
+      "rtsp://169.254.169.254/live",
     ]) {
       const r = await call("/api/cameras", "POST", { name: `${prefix} ssrf`, location: "x", sourceType: "rtsp", rtspUrl: bad });
       assert.equal(r.status, 400, `${bad} phải bị chặn ở API, got ${r.status}`);
       assert.ok(!r.data.id, "không được tạo camera khi URL bị chặn");
     }
-    report.push("PASS: 6 SSRF negatives bị API chặn 400 (outside-CIDR, loopback, v6 link-local, ::1, hostname LAN, http)");
+    report.push("PASS: 7 SSRF negatives bị API chặn 400 (outside-CIDR, loopback, v6 link-local, ::1, hostname LAN, http, v4 link-local metadata)");
   });
 
   await t.test("nhận đúng N=30 frames theo frame sequence burn-in (không byte-hash)", async () => {

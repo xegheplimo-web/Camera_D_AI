@@ -1,8 +1,10 @@
 /** ONVIF WS-Discovery UDP multicast. No credential guessing and no IP-range sweeps. */
 import dgram from "node:dgram";
 import os from "node:os";
-import { isIP } from "node:net";
 import { randomUUID } from "node:crypto";
+import { isPrivateIPv4 } from "./ipv4";
+
+export { isPrivateIPv4 };
 
 export type DiscoveredCamera = {
   ip: string;
@@ -12,11 +14,24 @@ export type DiscoveredCamera = {
   scopes: string[];
 };
 
-export function isPrivateIPv4(value: string): boolean {
-  if (isIP(value) !== 4) return false;
-  const nums = value.split(".").map(Number);
-  return nums[0] === 10 || (nums[0] === 172 && nums[1] >= 16 && nums[1] <= 31) ||
-    (nums[0] === 192 && nums[1] === 168) || (nums[0] === 169 && nums[1] === 254);
+/** Interface IPv4 LAN (RFC1918 + APIPA) sẽ gửi probe — một luật lọc cho cả quét và audit. */
+function lanInterfaces(): os.NetworkInterfaceInfo[] {
+  return Object.values(os.networkInterfaces()).flat()
+    .filter((it): it is os.NetworkInterfaceInfo => !!it && it.family === "IPv4" && !it.internal && isPrivateIPv4(it.address));
+}
+
+/** Dải mạng (CIDR) mà lần quét ONVIF sẽ phát probe vào — chỉ để log audit, không chứa credential. */
+export function lanProbeRanges(): string[] {
+  const ranges = new Set<string>();
+  for (const it of lanInterfaces()) {
+    const a = it.address.split(".").map(Number);
+    const m = (it.netmask || "255.255.255.255").split(".").map(Number);
+    if (a.length !== 4 || m.length !== 4 || a.some((n) => n > 255) || m.some((n) => n > 255)) continue;
+    const net = a.map((n, i) => n & m[i]);
+    const bits = m.reduce((acc, n) => acc + n.toString(2).replace(/0/g, "").length, 0);
+    ranges.add(`${net.join(".")}/${bits}`);
+  }
+  return [...ranges];
 }
 
 function tag(xml: string, local: string): string {
@@ -77,14 +92,13 @@ export async function discoverOnvif(timeoutMs = 3200): Promise<DiscoveredCamera[
       try { socket.setMulticastTTL(1); } catch { /* OS-dependent */ }
       const probe = Buffer.from(makeProbe(randomUUID()));
       // Probe once on each active IPv4 interface, plus the OS default route.
-      const interfaces = Object.values(os.networkInterfaces()).flat().filter((it) => it && it.family === "IPv4" && !it.internal && isPrivateIPv4(it.address));
       const send = (iface?: string) => {
         try {
           if (iface) socket.setMulticastInterface(iface);
           socket.send(probe, 3702, "239.255.255.250", () => { /* responses arrive asynchronously */ });
         } catch { /* interface unsupported; try other interfaces */ }
       };
-      for (const network of interfaces) send(network?.address);
+      for (const network of lanInterfaces()) send(network.address);
       send();
       timer = setTimeout(() => finish(), duration);
     });
