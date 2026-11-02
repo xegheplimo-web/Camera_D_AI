@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     }
 
     // The fast path has no Hermes/network dependency, health probe or heavy model call.
-    const answer = await answerQuestion(question);
+    const answer = await answerQuestion(question, session);
     answer.execution = { path: "fast", durationMs: Date.now() - t0, reason: route.reason };
     const saved = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(34215, ${session.sub})`);

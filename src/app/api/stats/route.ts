@@ -4,10 +4,13 @@ import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { ensureSeed } from "@/lib/seed";
 import { getSettings } from "@/lib/settings";
 import { startOfDayVN, addDays, TZ, TZSQL } from "@/lib/time";
+import { authorize } from "@/lib/auth-server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
+  const auth = await authorize("read");
+  if (auth.response) return auth.response;
   await ensureSeed();
   const days = Math.min(30, Math.max(1, Number(new URL(req.url).searchParams.get("days") ?? 7)));
   const settings = await getSettings();

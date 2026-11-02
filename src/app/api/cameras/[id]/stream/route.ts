@@ -1,7 +1,5 @@
-import { db } from "@/db";
-import { cameras } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { authorize } from "@/lib/auth-server";
+import { authorizeResource } from "@/lib/scope";
 import { problem } from "@/lib/audit";
 import { getMjpegStream } from "@/lib/camera/stream";
 
@@ -12,8 +10,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (auth.response) return auth.response;
   const id = Number((await params).id);
   if (!Number.isSafeInteger(id) || id <= 0) return problem(400, "Camera ID không hợp lệ");
-  const [cam] = await db.select({ sourceType: cameras.sourceType, streamName: cameras.streamName }).from(cameras).where(eq(cameras.id, id)).limit(1);
-  if (!cam || cam.sourceType !== "rtsp" || !cam.streamName) return problem(404, "Camera chưa kết nối");
+  const scoped = await authorizeResource(auth.session, "camera", id);
+  if (!scoped.ok) return scoped.response;
+  const cam = scoped.row;
+  if (!cam.enabled || cam.sourceType !== "rtsp" || !cam.streamName) return problem(404, "Camera chưa kết nối");
   try {
     const upstream = await getMjpegStream(cam.streamName);
     if (!upstream.ok || !upstream.body) return problem(503, "Luồng camera chưa sẵn sàng");

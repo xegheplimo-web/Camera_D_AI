@@ -1,11 +1,12 @@
 import { after } from "next/server";
 import { db } from "@/db";
-import { extractions, assets } from "@/db/schema";
+import { extractions } from "@/db/schema";
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { ensureSeed } from "@/lib/seed";
 import { thumbMap } from "@/lib/qa";
 import { audit } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
+import { authorizeResource, extractionScope } from "@/lib/scope";
 import { getSettings } from "@/lib/settings";
 import { enqueueJob, dispatchJobs, jobView } from "@/lib/ai/jobs";
 import { aiProblem, readJson, requestKey, throttle } from "@/lib/ai/http";
@@ -27,8 +28,10 @@ export async function GET(req: Request) {
   if (q) conds.push(or(ilike(extractions.note, `%${q}%`), ilike(extractions.title, `%${q}%`), sql`${extractions.result}::text ilike ${"%" + q + "%"}`)!);
   if (status) conds.push(eq(extractions.status, status));
   if (!settings.demoMode) conds.push(sql`${extractions.source} <> 'demo'`);
+  const scope = extractionScope(auth.session);
+  if (scope) conds.push(scope);
   const rows = await db.select().from(extractions).where(conds.length ? and(...conds) : undefined).orderBy(desc(extractions.createdAt)).limit(60);
-  const tm = await thumbMap(rows.map((r) => r.assetId));
+  const tm = await thumbMap(auth.session, rows.map((r) => r.assetId));
   return Response.json(rows.map((r) => ({ ...r, thumb: tm.get(r.assetId) ?? null })));
 }
 export async function POST(req: Request) {
@@ -40,8 +43,10 @@ export async function POST(req: Request) {
     const assetId = Number(b.assetId);
     const note = typeof b.note === "string" ? b.note.trim() : "";
     if (!Number.isSafeInteger(assetId) || assetId <= 0 || !note || note.length > 4000) throw new AiError("INVALID_EXTRACTION", "Cần ảnh hợp lệ và ghi chú từ 1–4.000 ký tự.", 400);
-    const [asset] = await db.select({ id: assets.id, kind: assets.kind, origin: assets.origin, url: assets.url }).from(assets).where(eq(assets.id, assetId)).limit(1);
-    if (!asset || asset.kind !== "image") throw new AiError("ASSET_NOT_FOUND", "Không tìm thấy ảnh gốc.", 404);
+    const scoped = await authorizeResource(auth.session, "asset", assetId);
+    if (!scoped.ok) throw new AiError("ASSET_NOT_FOUND", "Không tìm thấy ảnh gốc trong phạm vi được phép.", 404);
+    const asset = scoped.row;
+    if (asset.kind !== "image") throw new AiError("ASSET_NOT_FOUND", "Không tìm thấy ảnh gốc.", 404);
     const roi = validateRoi(b.roi);
     const title = typeof b.title === "string" ? b.title.trim().slice(0, 120) || "Trích xuất ảnh" : "Trích xuất ảnh";
     const tags = Array.isArray(b.tags) ? b.tags.filter((t): t is string => typeof t === "string").map((t) => t.slice(0, 40)).slice(0, 10) : [];
@@ -51,7 +56,7 @@ export async function POST(req: Request) {
     const source = asset.origin === "demo" ? "demo" : "live";
     // Saving a note is a Gateway operation: no Hermes/model dependency.
     if (b.action === "draft") {
-      const [row] = await db.insert(extractions).values({ assetId, note, title, tags, roi, taskType, ...meta, status: "DRAFT", source, createdBy: auth.session.name }).returning();
+      const [row] = await db.insert(extractions).values({ assetId, note, title, tags, roi, taskType, ...meta, status: "DRAFT", source, createdBy: auth.session.name, userId: auth.session.sub }).returning();
       await audit("note.save", { targetType: "extraction", targetId: row.id });
       return Response.json({ ...row, thumb: asset.url ?? `/api/assets/${asset.id}` }, { status: 201 });
     }

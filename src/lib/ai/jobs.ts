@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "@/db";
-import { aiJobs, extractions, messages, auditLog, sessions, users, type ExtractionResult } from "@/db/schema";
+import { aiJobs, assets, extractions, messages, auditLog, sessions, users, type ExtractionResult } from "@/db/schema";
 import { and, asc, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
+import { assetReadScope, authorizeResource } from "@/lib/scope";
 import type { SessionPayload } from "@/lib/token";
 import { AiError, errorInfo, TERMINAL, type JobInput, type JobKind, type JobResult, type JobView, type Step, type ToolName } from "./types";
 import { requiredTools } from "./routing";
@@ -30,6 +31,11 @@ export async function enqueueJob(kind: JobKind, input: JobInput, session: Sessio
   const inputHash = createHash("sha256").update(JSON.stringify({ kind, ...identity, draft })).digest("hex");
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(34215, ${session.sub})`);
+    // Object-level check is re-verified at admission: an extract job may only read in-scope media.
+    if (kind === "extract") {
+      const [asset] = await tx.select({ id: assets.id }).from(assets).where(and(eq(assets.id, input.assetId ?? -1), assetReadScope(session))).limit(1);
+      if (!asset) throw new AiError("ASSET_NOT_FOUND", "Không tìm thấy ảnh gốc trong phạm vi được phép.", 404);
+    }
     if (kind === "report") {
       const [previous] = await tx.select({ text: messages.text }).from(messages).where(and(eq(messages.userId, session.sub), eq(messages.requestKey, key), eq(messages.role, "user"))).limit(1);
       if (previous && previous.text !== input.question) throw new AiError("IDEMPOTENCY_CONFLICT", "Mã yêu cầu đã được dùng cho câu hỏi khác.", 409);
@@ -45,7 +51,7 @@ export async function enqueueJob(kind: JobKind, input: JobInput, session: Sessio
     if (kind === "extract" && draft) {
       const [ex] = await tx.insert(extractions).values({ assetId: input.assetId!, title: draft.title, tags: draft.tags,
         note: input.note!, roi: input.roi, taskType: input.taskType, productName: draft.productName, sku: draft.sku, priceVnd: draft.priceVnd, quantity: draft.quantity, status: "PROCESSING", source: draft.source,
-        createdBy: session.name }).returning();
+        createdBy: session.name, userId: session.sub }).returning();
       savedInput.extractionId = ex.id;
     }
     const [job] = await tx.insert(aiJobs).values({
@@ -66,8 +72,8 @@ export async function enqueueJob(kind: JobKind, input: JobInput, session: Sessio
 }
 
 export async function getJob(id: string, session: SessionPayload) {
-  const [row] = await db.select().from(aiJobs).where(and(eq(aiJobs.id, id), ...(session.role === "owner" ? [] : [eq(aiJobs.userId, session.sub)]))).limit(1);
-  return row ?? null;
+  const scoped = await authorizeResource(session, "job", id);
+  return scoped.ok ? scoped.row : null;
 }
 
 async function claim(id: string): Promise<JobRow | null> {
@@ -117,6 +123,8 @@ export async function runJob(id: string) {
     const [allowed] = await db.select({ role: users.role }).from(sessions).innerJoin(users, eq(users.id, sessions.userId))
       .where(and(eq(sessions.id, job.sessionId), eq(users.id, job.userId), eq(users.disabled, false), isNull(sessions.revokedAt), gt(sessions.expiresAt, new Date()))).limit(1);
     if (!allowed || (job.kind === "extract" && allowed.role === "viewer")) throw new AiError("SESSION_REVOKED", "Phiên tạo tác vụ đã hết hạn, bị thu hồi hoặc không còn quyền.", 401);
+    // Workers always query under the requester's scope — output can never outlive their permissions.
+    const requester: SessionPayload = { sid: job.sessionId, sub: job.userId, name: job.requester, role: allowed.role as SessionPayload["role"], device: job.requesterDevice, exp: 0 };
 
     let tools = requiredTools(job.kind, job.input.note, job.input.taskType);
     const useHermes = job.kind === "report" || tools.length > 1;
@@ -155,7 +163,7 @@ export async function runJob(id: string) {
     let evidence: Awaited<ReturnType<typeof evidenceWorker>> = [];
     let vision: ExtractionResult | undefined, ocr: ExtractionResult | undefined;
     const failures: string[] = [];
-    const image = job.kind === "extract" ? await assetImage(job.input.assetId!, job.input.roi) : undefined;
+    const image = job.kind === "extract" ? await assetImage(job.input.assetId!, job.input.roi, requester) : undefined;
     // At most two specialist calls in parallel, independent of the fast path.
     for (let i = 0; i < tools.length; i += 2) {
       await Promise.all(tools.slice(i, i + 2).map(async (tool) => {
@@ -166,9 +174,9 @@ export async function runJob(id: string) {
         try {
           signal.throwIfAborted();
           if (tool === "memory.summary") summary = await summaryWorker(job.input);
-          else if (tool === "memory.events") evidence = await evidenceWorker(job.input);
-          else if (tool === "vision.extract") vision = await imageWorker("vision", job.input, job.id, signal, image);
-          else if (tool === "ocr.extract") ocr = await imageWorker("ocr", job.input, job.id, signal, image);
+          else if (tool === "memory.events") evidence = await evidenceWorker(job.input, requester);
+          else if (tool === "vision.extract") vision = await imageWorker("vision", job.input, job.id, signal, image, requester);
+          else if (tool === "ocr.extract") ocr = await imageWorker("ocr", job.input, job.id, signal, image, requester);
           step.state = "succeeded";
         } catch (e) {
           if (signal.aborted) throw e;
