@@ -247,7 +247,7 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
             ))}
           </div>
         ) : null}
-        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-slate-500"><span>{voice.source}</span>{isOwner && <Link href="/admin" className="text-cyan-300 hover:underline">Gateway & AI Workers →</Link>}</div>
+        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-slate-400"><span>{voice.source}</span>{isOwner && <Link href="/admin" className="text-cyan-300 hover:underline">Gateway & AI Workers →</Link>}</div>
         {transcribing && <div className="flex items-center gap-2 text-xs text-cyan-200"><span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" /> Đang nhận dạng giọng nói…</div>}
         {voiceNotice && <p className="text-[10px] text-slate-400">{voiceNotice}</p>}
         {err && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-xs text-red-200" role="alert">{err}</div>}
@@ -284,7 +284,7 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
             </button>
             <button
               onClick={() => setHoldMode((m) => !m)}
-              className={`rounded-full px-2 py-0.5 text-[10px] ${holdMode ? "bg-cyan-400/20 text-cyan-200" : "text-slate-500"}`}
+              className={`rounded-full px-2 py-0.5 text-[10px] ${holdMode ? "bg-cyan-400/20 text-cyan-200" : "text-slate-400"}`}
               title="Chế độ giữ để nói"
             >
               {holdMode ? "Giữ để nói" : "Chạm để nói"}

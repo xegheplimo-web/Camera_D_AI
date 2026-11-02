@@ -19,10 +19,20 @@ html {
 }
 
 body {
-  background: radial-gradient(900px 500px at 15% -10%, rgba(34, 211, 238, 0.07), transparent 60%), #080f1e;
-  background-attachment: fixed;
+  background-color: #080f1e;
   min-height: 100vh;
   color: #f3f7ff;
+}
+
+/* Ambient glow lives on a pseudo-element so background-color stays a plain
+   opaque token (accessibility tools composite text over it correctly). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(900px 500px at 15% -10%, rgba(34, 211, 238, 0.07), transparent 60%);
 }
 
 /* Calm surfaces: glow is reserved for interactive focus, not static panels. */
@@ -108,7 +118,7 @@ body {
   box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.18);
 }
 .input::placeholder {
-  color: #64748b;
+  color: #90a1b9;
 }
 
 .scroll-thin::-webkit-scrollbar {

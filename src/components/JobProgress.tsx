@@ -41,13 +41,13 @@ export default function JobProgress({ job, compact = false, onUpdate, controllab
               <span className="font-medium text-slate-300">{s.worker}</span><span className="text-[#a9bad2]"> · {s.label}</span>
               {s.note && <p className="mt-0.5 break-words text-[11px] text-slate-400">{s.note}</p>}
             </div>
-            {s.durationMs !== undefined && <span className="shrink-0 font-mono text-[10px] text-slate-500">{s.durationMs} ms</span>}
+            {s.durationMs !== undefined && <span className="shrink-0 font-mono text-[10px] text-slate-400">{s.durationMs} ms</span>}
           </li>
         ))}
       </ol>
       {job.error && <p className="mt-2 break-words rounded-lg bg-amber-400/5 px-2 py-1.5 text-[11px] text-amber-200">{job.error}</p>}
       {error && <p className="mt-2 text-xs text-rose-200" role="alert">{error}</p>}
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
         <span>#{job.id.slice(0, 8)} · Lần chạy {job.attempts}/3 · {job.requesterDevice}</span>
         <span className="ml-auto" />
         {controllable && active && <button onClick={() => change("cancel")} disabled={busy} className="flex min-h-8 items-center gap-1 rounded-lg px-2 text-slate-300 hover:bg-white/5 disabled:opacity-40"><X className="h-3 w-3" /> Hủy tác vụ</button>}

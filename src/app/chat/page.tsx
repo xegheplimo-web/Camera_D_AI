@@ -17,7 +17,7 @@ export default function ChatPage() {
           <div className="text-sm text-cyan-300">{MOOD_LABEL[mood]}</div>
           <div className="mt-3 grid w-full grid-cols-5 gap-1">
             {(["idle", "listening", "thinking", "speaking", "alert"] as RobotMood[]).map((m) => (
-              <div key={m} className={`flex flex-col items-center rounded-lg p-1 text-[9px] ${m === mood ? "bg-cyan-500/20 text-cyan-200" : "text-slate-500"}`}>
+              <div key={m} className={`flex flex-col items-center rounded-lg p-1 text-[9px] ${m === mood ? "bg-cyan-500/20 text-cyan-200" : "text-slate-400"}`}>
                 <Robot mood={m} size={34} />
                 {MOOD_LABEL[m].replace("…", "").replace("!", "")}
               </div>

@@ -462,7 +462,7 @@ export default function ExtractClient() {
             <button onClick={saveDraft} disabled={!assetId || !note.trim() || status === "PROCESSING"} className="btn btn-ghost text-xs"><Save className="h-4 w-4" /> Lưu ghi chú · không cần AI</button>
             <label className="flex items-center gap-1.5 text-[11px] text-slate-400"><input type="checkbox" className="accent-cyan-400" checked={allowRemote} disabled={!remoteAllowed || status === "PROCESSING"} onChange={(e) => setAllowRemote(e.target.checked)} /> Cho phép gửi ảnh tới AI ngoài mạng riêng</label>
           </div>
-          {!remoteAllowed && <p className="text-[10px] text-slate-500">AI ngoài mạng riêng đang tắt. Xử lý AI nội bộ vẫn có thể xử lý ảnh.</p>}
+          {!remoteAllowed && <p className="text-[10px] text-slate-400">AI ngoài mạng riêng đang tắt. Xử lý AI nội bộ vẫn có thể xử lý ảnh.</p>}
           <button onClick={extract} disabled={status === "PROCESSING" || !assetId} className="btn btn-primary py-3 text-base">
             {status === "PROCESSING" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
             {status === "PROCESSING" ? progress || "Đang xử lý…" : result ? "Trích xuất lại" : "Trích xuất"}
@@ -582,7 +582,7 @@ export default function ExtractClient() {
                 <div className="truncate text-xs font-semibold">{h.title}</div>
                 <div className="mt-1 flex items-center justify-between">
                   <Badge color={h.status === "VERIFIED" ? "emerald" : h.status === "FAILED" ? "orange" : "amber"}>{h.status === "VERIFIED" ? "Đã xác minh" : h.status === "FAILED" ? "Sai" : "Tạm"}</Badge>
-                  <span className="text-[10px] text-slate-500">{new Date(h.createdAt).toLocaleDateString("vi-VN")}</span>
+                  <span className="text-[10px] text-slate-400">{new Date(h.createdAt).toLocaleDateString("vi-VN")}</span>
                 </div>
               </div>
             </button>

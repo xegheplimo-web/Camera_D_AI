@@ -147,7 +147,7 @@ export default function MemoryClient() {
 
       <form onSubmit={runSmart} className="glass-strong flex items-center gap-2 rounded-2xl p-2">
         <Sparkles className="ml-2 h-5 w-5 text-cyan-300" />
-        <input ref={smartRef} value={smart} onChange={(e) => setSmart(e.target.value)} placeholder="Tìm bằng AI: “xe máy hôm qua”, “cảnh báo trong kho tuần này”, “khách đầu tiên hôm nay”…" className="flex-1 bg-transparent px-2 py-2 text-sm outline-none placeholder:text-slate-500" aria-label="Tìm kiếm thông minh" />
+        <input ref={smartRef} value={smart} onChange={(e) => setSmart(e.target.value)} placeholder="Tìm bằng AI: “xe máy hôm qua”, “cảnh báo trong kho tuần này”, “khách đầu tiên hôm nay”…" className="flex-1 bg-transparent px-2 py-2 text-sm outline-none placeholder:text-slate-400" aria-label="Tìm kiếm thông minh" />
         <button disabled={smartBusy || !smart.trim()} className="btn btn-primary">{smartBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Tìm</button>
       </form>
 
@@ -235,14 +235,14 @@ export default function MemoryClient() {
               {groups.map((g) => (
                 <div key={g.day}>
                   <div className="sticky top-14 z-10 mb-1 flex items-center gap-2 bg-[#0a1630]/90 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-300 backdrop-blur">
-                    <CalendarDays className="h-3.5 w-3.5" /> {g.day} <span className="font-normal text-slate-500">· {g.items.length}</span>
+                    <CalendarDays className="h-3.5 w-3.5" /> {g.day} <span className="font-normal text-slate-400">· {g.items.length}</span>
                   </div>
                   <div className="relative ml-2 space-y-0.5 border-l border-cyan-400/20 pl-3">
                     {g.items.map((e) => (
                       <div key={e.id} className="relative">
                         <span className="absolute -left-[17px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-cyan-400" />
                         <EventRow e={e} onOpen={setOpen} />
-                        <div className="-mt-1 mb-1 ml-[76px] flex flex-wrap gap-1 text-[10px] text-slate-500">
+                        <div className="-mt-1 mb-1 ml-[76px] flex flex-wrap gap-1 text-[10px] text-slate-400">
                           {e.camera} {e.tags.map((t) => <Badge key={t}>#{t}</Badge>)} {e.source === "demo" && <Badge>mẫu</Badge>}
                         </div>
                       </div>
@@ -270,7 +270,7 @@ export default function MemoryClient() {
                   </div>
                   <p className="line-clamp-1 text-xs text-slate-400">Yêu cầu: {n.note}</p>
                   <p className="line-clamp-2 text-xs text-slate-300">{n.result?.summary}</p>
-                  <div className="flex flex-wrap gap-1">{n.tags.map((t) => <Badge key={t}>#{t}</Badge>)}<span className="text-[10px] text-slate-500">{new Date(n.createdAt).toLocaleString("vi-VN")}</span></div>
+                  <div className="flex flex-wrap gap-1">{n.tags.map((t) => <Badge key={t}>#{t}</Badge>)}<span className="text-[10px] text-slate-400">{new Date(n.createdAt).toLocaleString("vi-VN")}</span></div>
                 </div>
               </Link>
             ))}
