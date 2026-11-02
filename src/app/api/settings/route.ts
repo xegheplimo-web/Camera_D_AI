@@ -1,5 +1,6 @@
 import { getSettings, saveSetting, type Settings } from "@/lib/settings";
 import { authorize } from "@/lib/auth-server";
+import { serviceStatus } from "@/lib/ai/services";
 import { audit } from "@/lib/audit";
 import { aiProblem, readJson } from "@/lib/ai/http";
 import { AiError } from "@/lib/ai/types";
@@ -8,7 +9,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const auth = await authorize("read");
   if (auth.response) return auth.response;
-  return Response.json({ settings: await getSettings(), role: auth.session.role });
+  // Client feature flags only — worker endpoints/models stay inside the owner-only orchestration API.
+  const [settings, voice] = await Promise.all([getSettings(), serviceStatus().then((l) => l.find((s) => s.name === "voice"))]);
+  const visible = auth.session.role === "owner" ? settings : { ...settings, hermesEnabled: undefined };
+  return Response.json({ settings: visible, role: auth.session.role, capabilities: { voiceStt: !!voice?.stt, voiceTts: !!voice?.tts } });
 }
 export async function PATCH(req: Request) {
   const auth = await authorize("manage");

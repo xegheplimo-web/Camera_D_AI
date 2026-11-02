@@ -11,9 +11,12 @@ import { audit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+const OWNER_ONLY = () => Response.json({ type: "about:blank", title: "Hạ tầng điều phối chỉ hiển thị cho chủ hệ thống.", status: 403 }, { status: 403 });
+
 export async function GET() {
-  const auth = await authorize("read");
+  const auth = await authorize("manage");
   if (auth.response) return auth.response;
+  if (auth.session.role !== "owner") return OWNER_ONLY();
   const settings = await getSettings();
   const stats = await db.select({ state: aiJobs.state, count: sql<number>`count(*)::int` }).from(aiJobs).where(eq(aiJobs.userId, auth.session.sub)).groupBy(aiJobs.state);
   const [fast] = await db.select({ count: sql<number>`count(*)::int` }).from(messages).where(and(eq(messages.userId, auth.session.sub), eq(messages.role, "assistant"), sql`${messages.answer}->'execution'->>'path' = 'fast'`));
@@ -28,6 +31,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const auth = await authorize("manage");
   if (auth.response) return auth.response;
+  if (auth.session.role !== "owner") return OWNER_ONLY();
   try {
     throttle(`ai-probe:${auth.session.sub}`, 6);
     const b = await readJson(req);

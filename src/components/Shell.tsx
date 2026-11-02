@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { Home, Video, ScanText, Brain, MessageCircle, BarChart3, Settings, Bell, User, Power, LogOut, ShieldAlert, Palette, Workflow, Phone } from "lucide-react";
+import { Home, Video, ScanText, Brain, MessageCircle, BarChart3, Settings, Bell, User, Power, LogOut, ShieldAlert, Phone } from "lucide-react";
 import Robot, { MOOD_LABEL } from "./Robot";
 import VoiceCallDialog from "./VoiceCallDialog";
 import { useApp } from "./AppState";
@@ -18,8 +18,6 @@ const NAV = [
   { href: "/chat", label: "Hỏi đáp AI", icon: MessageCircle },
   { href: "/stats", label: "Thống kê", icon: BarChart3 },
   { href: "/settings", label: "Cài đặt", icon: Settings },
-  { href: "/orchestration", label: "Điều phối AI", icon: Workflow },
-  { href: "/design", label: "Design Freeze", icon: Palette },
 ];
 
 const TABS = [

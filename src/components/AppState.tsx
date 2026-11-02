@@ -31,7 +31,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     if (!navigator.onLine) off();
     const voices = () => setHasViVoice("speechSynthesis" in window && speechSynthesis.getVoices().some((v) => v.lang.toLowerCase().startsWith("vi")));
     voices(); if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", voices);
-    const config = () => fetch("/api/orchestration", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((s) => { if (s) setWorkerTts(!!s.services?.find((v: { name: string; tts?: boolean }) => v.name === "voice")?.tts); }).catch(() => {});
+    const config = () => fetch("/api/settings", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((s) => { if (s) setWorkerTts(!!s.capabilities?.voiceTts); }).catch(() => {});
     config(); window.addEventListener("dai:config", config);
     return () => { window.removeEventListener("offline", off); window.removeEventListener("online", on); window.removeEventListener("dai:config", config); if ("speechSynthesis" in window) speechSynthesis.removeEventListener("voiceschanged", voices); };
   }, []);

@@ -29,8 +29,8 @@ export default function useVoiceInput(options: { busy: boolean; onText: (t: stri
   useEffect(() => {
     const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
     setSupported(!!(w.SpeechRecognition || w.webkitSpeechRecognition));
-    api<{ services: { name: string; stt: boolean }[] }>("/api/orchestration").then((s) => {
-      const available = !!s.services.find((x) => x.name === "voice")?.stt;
+    api<{ capabilities?: { voiceStt?: boolean } }>("/api/settings").then((s) => {
+      const available = !!s.capabilities?.voiceStt;
       setWorkerStt(available);
       if (available && typeof MediaRecorder !== "undefined" && typeof navigator.mediaDevices !== "undefined") setSupported(true);
     }).catch(() => {});

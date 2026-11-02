@@ -139,11 +139,13 @@ export default function SettingsPage() {
       {msg && <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">{msg}</div>}
       {err && <div className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100" role="alert">{err}</div>}
 
-      <div className="glass flex flex-wrap items-center gap-3 p-4">
-        <Cpu className="h-6 w-6 text-cyan-300" />
-        <div className="flex-1"><div className="font-semibold">Hermes & AI Workers</div><p className="text-xs text-[#a9bad2]">Gateway xử lý nhanh, Hermes lập kế hoạch, worker thực hiện. Không tải model xuống ứng dụng.</p></div>
-        <Link href="/orchestration" className="btn btn-primary text-xs">Mở Điều phối AI →</Link>
-      </div>
+      {isOwner && (
+        <div className="glass flex flex-wrap items-center gap-3 p-4">
+          <Cpu className="h-6 w-6 text-cyan-300" />
+          <div className="flex-1"><div className="font-semibold">Hermes & AI Workers</div><p className="text-xs text-[#a9bad2]">Gateway xử lý nhanh, Hermes lập kế hoạch, worker thực hiện. Không tải model xuống ứng dụng.</p></div>
+          <Link href="/admin" className="btn btn-primary text-xs">Mở Engineering Console →</Link>
+        </div>
+      )}
       <Card title="Thiết lập lần đầu">
         <ul className="space-y-1.5 text-sm">
           {wizard.map((w) => (
