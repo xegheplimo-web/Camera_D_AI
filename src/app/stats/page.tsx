@@ -95,7 +95,7 @@ export default function StatsPage() {
           <div className="overflow-x-auto">
             <div className="grid min-w-[520px] gap-[3px]" style={{ gridTemplateColumns: "28px repeat(24, 1fr)" }}>
               <div />
-              {Array.from({ length: 24 }, (_, h) => <div key={h} className="text-center text-[8px] text-slate-500">{h % 3 === 0 ? h : ""}</div>)}
+              {Array.from({ length: 24 }, (_, h) => <div key={h} className="text-center text-[8px] text-slate-400">{h % 3 === 0 ? h : ""}</div>)}
               {DOW.map((d, i) => (
                 <div key={d} className="contents">
                   <div className="text-[10px] leading-5 text-slate-400">{d}</div>

@@ -104,7 +104,7 @@ export default function CameraPage() {
             {buckets.map((b, i) => (
               <div key={i} className="flex flex-1 flex-col items-center gap-1" title={`${b.h}h: ${b.items.length} sự kiện`}>
                 <div className="w-full rounded-t bg-gradient-to-t from-cyan-700 to-cyan-300" style={{ height: `${(b.items.length / maxB) * 60 + (b.items.length ? 3 : 1)}px`, opacity: b.items.length ? 1 : 0.25 }} />
-                <span className="text-[8px] text-slate-500">{i % 3 === 0 ? `${b.h}h` : ""}</span>
+                <span className="text-[8px] text-slate-400">{i % 3 === 0 ? `${b.h}h` : ""}</span>
               </div>
             ))}
           </div>

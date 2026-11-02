@@ -111,7 +111,7 @@ function AuthenticatedShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen lg:pl-64">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col gap-3 p-4 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col gap-3 bg-[#080f1e] p-4 lg:flex">
         <Link href="/" className="flex items-center gap-3 px-2">
           <div className="-my-2"><Robot mood={mood} size={52} still /></div>
           <div>
@@ -186,7 +186,7 @@ function AuthenticatedShell({ children }: { children: ReactNode }) {
       <main className="px-3 pb-24 pt-4 sm:px-4 lg:px-6 lg:pb-8">
         {isOffline && <div className="mb-3 md:hidden"><OfflineBanner /></div>}
         {demoMode && (
-          <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200" role="status">
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-400/40 bg-[#211d1b] px-3 py-2 text-sm text-amber-200" role="status">
             <ShieldAlert className="h-4 w-4 shrink-0" />
             <span>Đang bật dữ liệu mẫu — <Link href="/settings" className="font-semibold underline">tắt trong Cài đặt</Link> trước khi dùng thật.</span>
           </div>

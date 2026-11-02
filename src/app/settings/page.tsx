@@ -306,7 +306,7 @@ export default function SettingsPage() {
         <Card title={<span id="devices" className="flex items-center gap-2"><Users className="h-4 w-4 text-sky-300" /> Phiên & thiết bị</span>}>
           <p className="mb-2 text-xs text-[#a9bad2]">Mã thiết bị trình duyệt: <span className="font-mono text-cyan-200">{deviceId}</span> (chỉ để hiển thị, không dùng xác thực).</p>
           {admin?.sessions?.length ? (
-            <div className="scroll-thin max-h-56 space-y-1 overflow-auto text-xs">
+            <div className="scroll-thin max-h-56 space-y-1 overflow-auto text-xs" tabIndex={0} role="region" aria-label="Danh sách phiên đăng nhập">
               {admin.sessions.map((s) => (
                 <div key={s.id} className="flex items-center gap-2 rounded-lg border border-white/10 px-2 py-1">
                   <Smartphone className="h-4 w-4 text-slate-400" />
@@ -369,7 +369,7 @@ export default function SettingsPage() {
       </div>
 
       <Card title={<span id="audit" className="flex items-center gap-2"><ScrollText className="h-4 w-4 text-cyan-300" /> Nhật ký thao tác</span>}>
-        <div className="scroll-thin max-h-80 overflow-auto">
+        <div className="scroll-thin max-h-80 overflow-auto" tabIndex={0} role="region" aria-label="Bảng nhật ký thao tác">
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-[#192941] text-left text-[#a9bad2]"><tr><th className="p-1.5">Thời gian</th><th>Người thực hiện</th><th>Hành động</th><th>Đối tượng</th><th>Thiết bị</th><th>Chi tiết</th></tr></thead>
             <tbody>
@@ -383,7 +383,7 @@ export default function SettingsPage() {
                   <td className="max-w-xs truncate text-[#a9bad2]">{l.detail}</td>
                 </tr>
               ))}
-              {!admin?.logs.length && <tr><td colSpan={6} className="p-4 text-center text-slate-500">Chưa có thao tác nào hoặc bạn không có quyền xem nhật ký.</td></tr>}
+              {!admin?.logs.length && <tr><td colSpan={6} className="p-4 text-center text-slate-400">Chưa có thao tác nào hoặc bạn không có quyền xem nhật ký.</td></tr>}
             </tbody>
           </table>
         </div>

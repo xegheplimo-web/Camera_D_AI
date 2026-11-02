@@ -112,7 +112,7 @@ export default function HomePage() {
       </section>
 
       {(d?.demoShare.demo ?? 0) > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100 xl:col-span-12">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-400/30 bg-[#211d1b] px-3 py-2 text-xs text-amber-100 xl:col-span-12">
           <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-semibold">Dữ liệu mẫu</span>
           {d?.demoShare.demo.toLocaleString("vi-VN")} bản ghi mẫu đang bật để bạn trải nghiệm. {d?.settings.demoMode ? "Tắt trong Cài đặt khi dùng thật." : "Chế độ thật: dữ liệu mẫu đã bị loại khỏi truy vấn."}
           <Link href="/settings#data" className="ml-auto font-semibold text-amber-200 underline">Quản lý dữ liệu mẫu</Link>
