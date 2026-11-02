@@ -2,23 +2,24 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Video, Volume2, Smartphone, Database, ShieldCheck, ScrollText, Trash2, Plus, Cpu, CheckCircle2, Circle, Users, HardDrive, Gauge } from "lucide-react";
+import { Video, Volume2, Smartphone, Database, ShieldCheck, ScrollText, Trash2, Plus, Cpu, CheckCircle2, Circle, Users, HardDrive, Gauge, Pencil } from "lucide-react";
 import { Card, Badge } from "@/components/ui";
 import { useApp } from "@/components/AppState";
 import { api, getDeviceId } from "@/lib/client";
 import { NoPermissionState } from "@/components/states";
 
-type Cam = { id: number; code: string; name: string; location: string; sourceType: string; status: string; thumbnail: string | null };
+type Cam = { id: number; code: string; name: string; location: string; sourceType: string; status: string; thumbnail: string | null; enabled: boolean; retentionDays: number | null };
 type Admin = {
   logs: { id: number; actor: string | null; actorRole: string | null; action: string; targetType: string | null; targetId: string | null; device: string | null; detail: string | null; createdAt: string }[];
   demoEvents: number;
   liveEvents: number;
+  demo: { events: number; extractions: number; assets: number };
   storageBytes: number;
   visionCloud: boolean;
   sessions: { id: string; user: string | null; role: string | null; device: string; createdAt: string; lastSeenAt: string; revokedAt: string | null }[];
   me: { name: string; role: string };
 };
-type Settings = { demoMode: boolean; retentionDays: number; remotePlayback: boolean; requireVerifiedForAnswers: boolean };
+type Settings = { demoMode: boolean; retentionDays: number; remotePlayback: boolean; requireVerifiedForAnswers: boolean; detectEnabled: boolean };
 
 export default function SettingsPage() {
   const { voiceOut, setVoiceOut, rate, setRate, speak, hasViVoice } = useApp();
@@ -27,6 +28,8 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [role, setRole] = useState<string>("viewer");
   const [form, setForm] = useState({ name: "", location: "", sourceType: "demo" });
+  const [editCamId, setEditCamId] = useState<number | null>(null);
+  const [camDraft, setCamDraft] = useState({ name: "", location: "", enabled: true, retentionDays: "" });
   const [phrase, setPhrase] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -57,12 +60,58 @@ export default function SettingsPage() {
     load();
   };
 
-  const adminAction = async (action: string, label: string) => {
-    if (phrase !== "XOA DU LIEU") return setErr("Nhập đúng cụm “XOA DU LIEU” để xác nhận.");
-    if (!confirm(`${label}? Hành động không thể hoàn tác.`)) return;
+  const startEditCam = (c: Cam) => {
+    setEditCamId(c.id);
+    setCamDraft({ name: c.name, location: c.location, enabled: c.enabled, retentionDays: c.retentionDays == null ? "" : String(c.retentionDays) });
+  };
+
+  const saveCam = async (id: number) => {
+    setErr(null);
     try {
-      await api("/api/admin", { method: "POST", json: { action, confirmPhrase: phrase, deviceId: getDeviceId() } });
-      setMsg("Đã thực hiện. Nhật ký đã ghi lại thao tác.");
+      await api(`/api/cameras/${id}`, {
+        method: "PATCH",
+        json: { name: camDraft.name, location: camDraft.location, enabled: camDraft.enabled, retentionDays: camDraft.retentionDays === "" ? null : Number(camDraft.retentionDays) },
+      });
+      setEditCamId(null);
+      setMsg("Đã lưu camera.");
+      load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Không lưu được camera");
+    }
+  };
+
+  const delCam = async (c: Cam) => {
+    if (!confirm(`Xoá camera ${c.name}? Stream go2rtc liên quan sẽ được gỡ.`)) return;
+    setErr(null);
+    try {
+      const run = async (cascade: boolean): Promise<{ eventsRemoved?: number } | null> => {
+        const res = await fetch(`/api/cameras/${c.id}?confirm=yes${cascade ? "&cascade=yes" : ""}`, { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 409 && !cascade) {
+          if (confirm(`Camera còn ${data.events ?? "?"} sự kiện tham chiếu. Xoá kèm toàn bộ sự kiện đó?`)) return run(true);
+          return null;
+        }
+        if (!res.ok) throw new Error([data.title, data.detail].filter(Boolean).join(": ") || `Lỗi ${res.status}`);
+        return data;
+      };
+      const r = await run(false);
+      if (r) {
+        setMsg(`Đã xoá camera ${c.code}${r.eventsRemoved ? ` kèm ${r.eventsRemoved} sự kiện` : ""}.`);
+        load();
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Không xoá được camera");
+    }
+  };
+
+  const adminAction = async (action: string, label: string, extra = "") => {
+    if (phrase !== "XOA DU LIEU") return setErr("Nhập đúng cụm “XOA DU LIEU” để xác nhận.");
+    if (!confirm(`${label}? Hành động không thể hoàn tác.${extra}`)) return;
+    try {
+      const r = await api<{ ok: boolean; events?: number; extractions?: number; assets?: number; bytes?: number }>("/api/admin", { method: "POST", json: { action, confirmPhrase: phrase, deviceId: getDeviceId() } });
+      setMsg(action === "purge_demo"
+        ? `Đã xoá ${r.events ?? 0} sự kiện, ${r.extractions ?? 0} trích xuất, ${r.assets ?? 0} ảnh mẫu (${((r.bytes ?? 0) / 1024 / 1024).toFixed(1)} MB). Nhật ký đã ghi lại.`
+        : "Đã thực hiện. Nhật ký đã ghi lại thao tác.");
       setPhrase("");
       load();
     } catch (e) {
@@ -110,15 +159,42 @@ export default function SettingsPage() {
         <Card title={<span id="cameras" className="flex items-center gap-2"><Video className="h-4 w-4 text-cyan-300" /> Camera</span>}>
           <div className="space-y-2">
             {cams.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 rounded-xl border border-white/10 p-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={c.thumbnail ?? ""} alt="" className="h-10 w-16 rounded-lg object-cover" />
-                <div className="flex-1">
-                  <div className="text-sm font-semibold">{c.code} · {c.name}</div>
-                  <div className="text-xs text-[#a9bad2]">{c.location}</div>
-                </div>
-                <Badge color={c.sourceType === "webcam" ? "cyan" : "slate"}>{c.sourceType === "webcam" ? "Webcam" : "Nguồn mẫu"}</Badge>
-                <Badge color={c.status === "demo" ? "slate" : c.status === "online" ? "emerald" : "amber"}>{c.status === "demo" ? "demo" : c.status}</Badge>
+              <div key={c.id} className="rounded-xl border border-white/10 p-2">
+                {editCamId === c.id ? (
+                  <div className="space-y-2">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <input value={camDraft.name} onChange={(e) => setCamDraft({ ...camDraft, name: e.target.value })} placeholder="Tên camera" className="input" />
+                      <input value={camDraft.location} onChange={(e) => setCamDraft({ ...camDraft, location: e.target.value })} placeholder="Vị trí" className="input" />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                      <label className="flex items-center gap-1.5"><input type="checkbox" checked={camDraft.enabled} onChange={(e) => setCamDraft({ ...camDraft, enabled: e.target.checked })} className="accent-cyan-400" /> Bật</label>
+                      <label className="flex items-center gap-1.5">Giữ sự kiện (ngày)
+                        <input type="number" min={1} max={365} value={camDraft.retentionDays} onChange={(e) => setCamDraft({ ...camDraft, retentionDays: e.target.value })} placeholder="mặc định" className="input w-24" />
+                      </label>
+                      <span className="text-[#a9bad2]">để trống = theo cài đặt chung</span>
+                      <span className="flex-1" />
+                      <button onClick={() => saveCam(c.id)} className="btn btn-primary text-xs">Lưu</button>
+                      <button onClick={() => setEditCamId(null)} className="btn btn-ghost text-xs">Huỷ</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={c.thumbnail ?? ""} alt="" className="h-10 w-16 rounded-lg object-cover" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">{c.code} · {c.name}{!c.enabled && <span className="ml-1 text-amber-300">(tắt)</span>}</div>
+                      <div className="text-xs text-[#a9bad2]">{c.location}{c.retentionDays ? ` · giữ ${c.retentionDays}d` : ""}</div>
+                    </div>
+                    <Badge color={c.sourceType === "webcam" ? "cyan" : "slate"}>{c.sourceType === "webcam" ? "Webcam" : "Nguồn mẫu"}</Badge>
+                    <Badge color={c.status === "demo" ? "slate" : c.status === "online" ? "emerald" : "amber"}>{c.status === "demo" ? "demo" : c.status}</Badge>
+                    {canManage && (
+                      <button onClick={() => startEditCam(c)} className="btn btn-ghost px-2 py-1 text-xs" aria-label={`Sửa ${c.name}`} title="Sửa camera"><Pencil className="h-3.5 w-3.5" /></button>
+                    )}
+                    {isOwner && (
+                      <button onClick={() => delCam(c)} className="btn btn-ghost px-2 py-1 text-xs text-rose-300" aria-label={`Xoá ${c.name}`} title="Xoá camera"><Trash2 className="h-3.5 w-3.5" /></button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -167,9 +243,16 @@ export default function SettingsPage() {
                 <span className="block text-xs text-[#a9bad2]">Tắt để mọi câu trả lời, thống kê và trí nhớ chỉ dùng dữ liệu thật. Bản ghi mẫu vẫn nằm trong DB nhưng bị loại khỏi truy vấn.</span>
               </span>
             </label>
+            <label className="flex items-start gap-2 rounded-xl border border-white/10 p-2">
+              <input type="checkbox" checked={settings?.detectEnabled ?? false} disabled={!canManage} onChange={(e) => patchSettings({ detectEnabled: e.target.checked })} className="mt-0.5 accent-cyan-400" />
+              <span>
+                <b>Phát hiện chuyển động từ camera</b>
+                <span className="block text-xs text-[#a9bad2]">Detector phía server lấy frame từ go2rtc theo chu kỳ, so khung hình bằng ffmpeg và ghi sự kiện <b>live</b> (có cooldown mỗi camera). Cần <span className="font-mono">DETECT_ENABLED=true</span> trong môi trường máy chủ.</span>
+              </span>
+            </label>
             <label className="block text-xs text-[#a9bad2]">Thời gian giữ dữ liệu (ngày)
               <input type="number" min={1} max={365} disabled={!canManage} value={settings?.retentionDays ?? 30} onChange={(e) => patchSettings({ retentionDays: Number(e.target.value) })} className="input mt-1" />
-              <span className="mt-1 block text-[11px] text-amber-200">Chính sách đã lưu; tiến trình xóa tự động theo lịch <b>chưa chạy</b> (G7).</span>
+              <span className="mt-1 block text-[11px] text-emerald-200">Đã có hiệu lực: job retention chạy lúc khởi động và lặp mỗi 24h — xoá sự kiện/trích xuất/ảnh quá hạn (riêng camera có thể override trong mục Camera).</span>
             </label>
             <p className="text-xs text-[#a9bad2]">Sự kiện mẫu: <b>{admin?.demoEvents ?? "–"}</b> · Sự kiện thật: <b>{admin?.liveEvents ?? "–"}</b></p>
             <div className="flex flex-wrap gap-2">
@@ -230,8 +313,11 @@ export default function SettingsPage() {
             <div className="space-y-3 text-sm">
               <p className="text-xs text-[#a9bad2]">Để xác nhận, nhập chính xác <b className="font-mono text-rose-200">XOA DU LIEU</b>. Hành động được ghi vào nhật ký kèm người thực hiện.</p>
               <input value={phrase} onChange={(e) => setPhrase(e.target.value)} placeholder="XOA DU LIEU" className="input font-mono" aria-label="Cụm xác nhận" />
+              <div className="rounded-xl border border-amber-400/20 bg-amber-500/5 p-2 text-xs text-[#a9bad2]">
+                Dữ liệu mẫu sẽ xoá: <b className="text-amber-200">{admin?.demo?.events ?? "–"}</b> sự kiện · <b className="text-amber-200">{admin?.demo?.extractions ?? "–"}</b> trích xuất · <b className="text-amber-200">{admin?.demo?.assets ?? "–"}</b> ảnh (dữ liệu thật không đổi)
+              </div>
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => adminAction("clear_demo", "Xóa toàn bộ dữ liệu mẫu")} disabled={phrase !== "XOA DU LIEU"} className="btn btn-ghost"><Trash2 className="h-4 w-4" /> Xóa dữ liệu mẫu</button>
+                <button onClick={() => adminAction("purge_demo", "Xóa toàn bộ dữ liệu mẫu", `\nSẽ xoá ${admin?.demo?.events ?? "?"} sự kiện + ${admin?.demo?.extractions ?? "?"} trích xuất + ${admin?.demo?.assets ?? "?"} ảnh mẫu.`)} disabled={phrase !== "XOA DU LIEU"} className="btn btn-ghost"><Trash2 className="h-4 w-4" /> Xoá dữ liệu mẫu</button>
                 <button onClick={() => adminAction("reset_all", "XÓA TẤT CẢ dữ liệu và tạo lại mẫu")} disabled={phrase !== "XOA DU LIEU"} className="btn btn-danger"><Trash2 className="h-4 w-4" /> Đặt lại toàn bộ</button>
               </div>
             </div>

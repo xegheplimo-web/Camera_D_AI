@@ -75,6 +75,7 @@ export function EventRow({ e, onOpen, highlight }: { e: EventItem; onOpen?: (e: 
           {e.priority !== "normal" && <Badge color={e.priority === "critical" ? "orange" : "amber"}>{e.priority === "critical" ? "Khẩn" : "Quan trọng"}</Badge>}
           {e.clientReported && <Badge color="slate">client báo</Badge>}
           {e.source === "demo" && <Badge color="slate">mẫu</Badge>}
+          {e.source === "live" && <Badge color="emerald">live</Badge>}
         </div>
         <div className="truncate text-sm text-slate-100">{e.label}</div>
       </div>

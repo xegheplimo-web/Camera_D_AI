@@ -15,7 +15,7 @@ export async function PATCH(req: Request) {
   if (auth.response) return auth.response;
   try {
     const body = await readJson(req);
-    const keys: (keyof Settings)[] = ["demoMode", "retentionDays", "remotePlayback", "requireVerifiedForAnswers", "hermesEnabled", "remoteProcessingAllowed"];
+    const keys: (keyof Settings)[] = ["demoMode", "retentionDays", "remotePlayback", "requireVerifiedForAnswers", "hermesEnabled", "remoteProcessingAllowed", "detectEnabled"];
     const changes: [keyof Settings, unknown][] = [];
     for (const key of keys) {
       if (!(key in body)) continue;

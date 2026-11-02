@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { authorize } from "@/lib/auth-server";
 import { getSettings } from "@/lib/settings";
 import { serviceFetch, serviceStatus } from "@/lib/ai/services";
+import { detectorStatus } from "@/lib/camera/detector";
 import { aiProblem, readJson, throttle } from "@/lib/ai/http";
 import { AiError, errorInfo, type ServiceName } from "@/lib/ai/types";
 import { audit } from "@/lib/audit";
@@ -19,6 +20,7 @@ export async function GET() {
   return Response.json({ services: await serviceStatus(), settings: { hermesEnabled: settings.hermesEnabled, remoteProcessingAllowed: settings.remoteProcessingAllowed },
     fastPath: { state: "online", worker: "Memory / SQL", count: fast.count }, stats,
     canManage: auth.session.role === "owner" || auth.session.role === "operator", isOwner: auth.session.role === "owner",
+    detector: await detectorStatus(),
     dispatchMode: process.env.DAI_DISPATCH_TOKEN ? "request-driven + dispatcher endpoint configured" : "request-driven (next.after + polling recovery)",
     maxConcurrency: 2, maxAttempts: 3, modelDownloadsOnClient: false,
   });

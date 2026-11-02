@@ -8,10 +8,12 @@ export type Settings = {
   requireVerifiedForAnswers: boolean;
   hermesEnabled: boolean;
   remoteProcessingAllowed: boolean;
+  detectEnabled: boolean;
 };
 const DEFAULTS: Settings = {
   demoMode: true, retentionDays: 30, remotePlayback: false,
   requireVerifiedForAnswers: true, hermesEnabled: true, remoteProcessingAllowed: false,
+  detectEnabled: false,
 };
 
 export async function getSettings(): Promise<Settings> {

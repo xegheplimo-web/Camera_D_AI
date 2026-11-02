@@ -63,6 +63,7 @@ export const cameras = pgTable("cameras", {
   streamName: text("stream_name"), // go2rtc local identifier
   thumbnail: text("thumbnail"),
   enabled: boolean("enabled").notNull().default(true),
+  retentionDays: integer("retention_days"), // NULL = theo app_settings.retentionDays; >0 = override số ngày giữ events của camera
   status: text("status").notNull().default("online"), // online | offline | degraded | demo
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
