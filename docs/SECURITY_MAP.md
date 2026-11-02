@@ -1,4 +1,4 @@
-# SECURITY MAP — Camera D-AI (CAM-G1-001, branch `feat/g1-001-scope`)
+# SECURITY MAP — Camera D-AI (CAM-G1-001, branch `feat/g1-001-scope`; HTTP hardening CAM-G1-002, branch `feat/g1-002-rl-http`)
 
 > Object-level authorization contract. Mọi request đi qua 3 lớp:
 > **(1)** `src/proxy.ts` — cookie `dai_session` bắt buộc cho route không public → 401.
@@ -34,7 +34,7 @@
 | GET | `/api/assets/[id]` | read | `authorizeResource(asset,read)` → 404 out-of-scope | user-bound + shared(camera-bound/demo) | `scope.denied` |
 | GET | `/api/auth/google` | public | n/a — OAuth redirect | — | — |
 | GET | `/api/auth/google/callback` | public | `ensureGoogleSeed` → owner seed attong39 | private | `auth.login` |
-| POST | `/api/auth/login` | public + rate-limit | credential verify, issue own session | private | `auth.login` / `auth.login_failed` |
+| POST | `/api/auth/login` | public + rate-limit (5 tries / 5 min per `ip:login`, 429; bounded 5000-bucket map) | credential verify, issue own session | private | `auth.login` / `auth.login_failed` |
 | POST | `/api/auth/logout` | session | revokes caller's own session row | user-bound | `auth.logout` |
 | GET | `/api/auth/me` | session | returns own session + `can()` matrix | user-bound | — |
 | GET | `/api/cameras` | read | shared list, `publicCamera()` strips secrets | shared | — |
@@ -68,6 +68,13 @@
 | POST | `/api/vision/frame` | capture | frame processed in-memory, `persisted:false`, throttled per user | transient (user-bound) | — |
 | POST | `/api/voice/tts` | ask | audio streamed to requester only; `X-Output-Target: requester_device`; no device control | user-bound | — |
 | POST | `/api/voice/transcriptions` | ask | multipart ≤6MB, requester-bound; `storedAudio:false` | user-bound | — |
+
+## HTTP surface hardening (CAM-G1-002, `src/lib/http-guard.ts`)
+
+- **Client IP / X-Forwarded-For**: `requestMeta(h, remoteAddr)` resolves the client IP via `clientIp`. `X-Forwarded-For` (first hop) is honored **only** when the direct peer matches `TRUSTED_PROXY_CIDR` (comma-separated IPv4/IPv6 CIDRs or bare IPs; `::ffff:`-mapped peers match IPv4 entries). Default **unset = trust nothing**: the peer address is used, and when no socket address is available (`next start` route handlers expose none — `remoteAddrFrom` only picks up platform `req.ip`/`req.socket.remoteAddress`) the value fails closed to `"unknown"` with `httpGuardMetrics.clientIpUnknown` incremented. `x-real-ip` is never consulted.
+- **Rate-limit buckets**: keyed `ip:login` — so with no trusted proxy all unresolvable clients share the `unknown:<login>` bucket. That is deliberate fail-closed behavior: XFF spoofing cannot mint fresh buckets, at the documented cost that unrelated clients behind an unresolvable-IP deployment share one bucket.
+- **Login limiter**: 5 attempts per 5-minute window per `ip:login` → 429 (`"Thử lại sau 5 phút"`). The attempts map is hard-capped at 5000 entries: expired windows are swept first, then least-recently-hit keys are evicted — memory is bounded regardless of traffic.
+- **4xx contract on `/api/auth/login`** (unchanged codes elsewhere): 400 missing credentials / malformed JSON / empty body, 413 body > 8 KiB, 415 non-`application/json` content type, 422 well-formed JSON with wrong shape or non-string `login`/`password` fields, 429 rate-limit.
 
 ## Background workers (no HTTP context)
 
