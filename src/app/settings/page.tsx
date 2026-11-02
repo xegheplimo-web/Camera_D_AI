@@ -1,0 +1,265 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { Video, Volume2, Smartphone, Database, ShieldCheck, ScrollText, Trash2, Plus, Cpu, CheckCircle2, Circle, Users, HardDrive, Gauge } from "lucide-react";
+import { Card, Badge } from "@/components/ui";
+import { useApp } from "@/components/AppState";
+import { api, getDeviceId } from "@/lib/client";
+import { NoPermissionState } from "@/components/states";
+
+type Cam = { id: number; code: string; name: string; location: string; sourceType: string; status: string; thumbnail: string | null };
+type Admin = {
+  logs: { id: number; actor: string | null; actorRole: string | null; action: string; targetType: string | null; targetId: string | null; device: string | null; detail: string | null; createdAt: string }[];
+  demoEvents: number;
+  liveEvents: number;
+  storageBytes: number;
+  visionCloud: boolean;
+  sessions: { id: string; user: string | null; role: string | null; device: string; createdAt: string; lastSeenAt: string; revokedAt: string | null }[];
+  me: { name: string; role: string };
+};
+type Settings = { demoMode: boolean; retentionDays: number; remotePlayback: boolean; requireVerifiedForAnswers: boolean };
+
+export default function SettingsPage() {
+  const { voiceOut, setVoiceOut, rate, setRate, speak, hasViVoice } = useApp();
+  const [cams, setCams] = useState<Cam[]>([]);
+  const [admin, setAdmin] = useState<Admin | null>(null);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [role, setRole] = useState<string>("viewer");
+  const [form, setForm] = useState({ name: "", location: "", sourceType: "demo" });
+  const [phrase, setPhrase] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api<Cam[]>("/api/cameras").then(setCams).catch(() => {});
+    api<{ settings: Settings; role: string }>("/api/settings").then((r) => { setSettings(r.settings); setRole(r.role); }).catch(() => {});
+    api<Admin>("/api/admin").then(setAdmin).catch(() => setAdmin(null));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const patchSettings = async (patch: Partial<Settings>) => {
+    setErr(null);
+    try {
+      const r = await api<{ settings: Settings }>("/api/settings", { method: "PATCH", json: patch });
+      setSettings(r.settings);
+      setMsg("Đã lưu cài đặt.");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Không lưu được");
+    }
+  };
+
+  const addCam = async () => {
+    if (!form.name.trim() || !form.location.trim()) return;
+    await api("/api/cameras", { method: "POST", json: form });
+    setForm({ name: "", location: "", sourceType: "demo" });
+    load();
+  };
+
+  const adminAction = async (action: string, label: string) => {
+    if (phrase !== "XOA DU LIEU") return setErr("Nhập đúng cụm “XOA DU LIEU” để xác nhận.");
+    if (!confirm(`${label}? Hành động không thể hoàn tác.`)) return;
+    try {
+      await api("/api/admin", { method: "POST", json: { action, confirmPhrase: phrase, deviceId: getDeviceId() } });
+      setMsg("Đã thực hiện. Nhật ký đã ghi lại thao tác.");
+      setPhrase("");
+      load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Không thực hiện được");
+    }
+  };
+
+  const canManage = role === "owner" || role === "operator";
+  const isOwner = role === "owner";
+  const wizard = [
+    { done: cams.length > 0, label: "Kết nối camera (webcam hoặc nguồn mô phỏng)", href: "#cameras" },
+    { done: true, label: "Kiểm tra loa: nghe thử giọng D-AI Bot", href: "#audio" },
+    { done: !settings?.demoMode, label: "Tắt dữ liệu mẫu trước khi dùng thật", href: "#data" },
+    { done: !!admin, label: "Duyệt thiết bị và phiên đăng nhập", href: "#devices" },
+    { done: !!(admin && admin.logs.length > 0), label: "Xem nhật ký thao tác đầu tiên", href: "#audit" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-xl font-bold">Cài đặt & quản trị</h1>
+        <Badge color={isOwner ? "emerald" : canManage ? "cyan" : "slate"}>{admin?.me.role ?? role}</Badge>
+        <span className="text-xs text-[#a9bad2]">Sinh trắc/thiết bị không được dùng làm bằng chứng xác thực — mọi hành động dựa trên phiên đăng nhập.</span>
+      </div>
+      {msg && <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">{msg}</div>}
+      {err && <div className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100" role="alert">{err}</div>}
+
+      <div className="glass flex flex-wrap items-center gap-3 p-4">
+        <Cpu className="h-6 w-6 text-cyan-300" />
+        <div className="flex-1"><div className="font-semibold">Hermes & AI Workers</div><p className="text-xs text-[#a9bad2]">Gateway xử lý nhanh, Hermes lập kế hoạch, worker thực hiện. Không tải model xuống ứng dụng.</p></div>
+        <Link href="/orchestration" className="btn btn-primary text-xs">Mở Điều phối AI →</Link>
+      </div>
+      <Card title="Thiết lập lần đầu">
+        <ul className="space-y-1.5 text-sm">
+          {wizard.map((w) => (
+            <li key={w.label} className="flex items-center gap-2">
+              {w.done ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <Circle className="h-4 w-4 text-slate-500" />}
+              <a href={w.href} className={w.done ? "text-[#a9bad2] line-through" : "text-white hover:text-cyan-300"}>{w.label}</a>
+            </li>
+          ))}
+        </ul>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card title={<span id="cameras" className="flex items-center gap-2"><Video className="h-4 w-4 text-cyan-300" /> Camera</span>}>
+          <div className="space-y-2">
+            {cams.map((c) => (
+              <div key={c.id} className="flex items-center gap-3 rounded-xl border border-white/10 p-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={c.thumbnail ?? ""} alt="" className="h-10 w-16 rounded-lg object-cover" />
+                <div className="flex-1">
+                  <div className="text-sm font-semibold">{c.code} · {c.name}</div>
+                  <div className="text-xs text-[#a9bad2]">{c.location}</div>
+                </div>
+                <Badge color={c.sourceType === "webcam" ? "cyan" : "slate"}>{c.sourceType === "webcam" ? "Webcam" : "Nguồn mẫu"}</Badge>
+                <Badge color={c.status === "demo" ? "slate" : c.status === "online" ? "emerald" : "amber"}>{c.status === "demo" ? "demo" : c.status}</Badge>
+              </div>
+            ))}
+          </div>
+          {!canManage ? (
+            <div className="mt-3"><NoPermissionState what="quản lý camera" /></div>
+          ) : (
+            <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Tên camera" className="input" />
+              <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Vị trí" className="input" />
+              <select value={form.sourceType} onChange={(e) => setForm({ ...form, sourceType: e.target.value })} className="input" aria-label="Nguồn">
+                <option value="demo">Mô phỏng</option>
+                <option value="webcam">Webcam</option>
+              </select>
+              <button onClick={addCam} className="btn btn-primary"><Plus className="h-4 w-4" /> Thêm</button>
+            </div>
+          )}
+          {form.sourceType === "rtsp" && <p className="mt-2 text-[11px] text-amber-200">RTSP/IP camera cần media gateway riêng — chưa hỗ trợ.</p>}
+          <p className="mt-2 text-[11px] text-[#a9bad2]">Camera IP/RTSP và ghi hình 24/7 khi đóng trình duyệt <b className="text-amber-300">chưa hỗ trợ</b> trong bản web này; cần dịch vụ nền trên Windows (giai đoạn G3).</p>
+        </Card>
+
+        <Card title={<span id="audio" className="flex items-center gap-2"><Volume2 className="h-4 w-4 text-violet-300" /> Giọng nói & âm thanh</span>}>
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setVoiceOut("device")} className={`btn ${voiceOut === "device" ? "btn-primary" : "btn-ghost"}`}>Phát qua loa máy này</button>
+              <button onClick={() => setVoiceOut("text")} className={`btn ${voiceOut === "text" ? "btn-primary" : "btn-ghost"}`}>Chỉ hiện chữ</button>
+            </div>
+            <label className="block text-xs text-[#a9bad2]">Tốc độ đọc {rate.toFixed(1)}x
+              <input type="range" min={0.6} max={1.6} step={0.1} value={rate} onChange={(e) => setRate(Number(e.target.value))} className="mt-1 w-full accent-cyan-400" />
+            </label>
+            <button onClick={() => speak("Xin chào! Đây là giọng nói của D-AI Bot trên thiết bị này.")} className="btn btn-ghost">Nghe thử loa</button>
+            <ul className="space-y-1 text-xs text-[#a9bad2]">
+              <li>• Mặc định phát trên <b className="text-white">thiết bị gửi câu hỏi</b>; máy chủ không tự phát loa thiết bị khác.</li>
+              <li>• Mic chỉ bật khi bạn nhấn; không có nghe nền hay wake word.</li>
+              <li>• Giọng dự phòng của thiết bị: {hasViVoice ? <span className="text-emerald-300">có sẵn</span> : <span className="text-amber-300">chưa có — dùng giọng mặc định</span>}</li>
+              <li>• Phát trên thiết bị khác: <b className="text-amber-300">chưa hỗ trợ</b> (cần ghép đôi + đồng ý + quyền owner).</li>
+            </ul>
+          </div>
+        </Card>
+
+        <Card title={<span id="data" className="flex items-center gap-2"><Database className="h-4 w-4 text-amber-300" /> Dữ liệu & chế độ thật</span>}>
+          <div className="space-y-3 text-sm">
+            <label className="flex items-start gap-2 rounded-xl border border-white/10 p-2">
+              <input type="checkbox" checked={settings?.demoMode ?? true} disabled={!canManage} onChange={(e) => patchSettings({ demoMode: e.target.checked })} className="mt-0.5 accent-cyan-400" />
+              <span>
+                <b>Hiển thị dữ liệu mẫu</b>
+                <span className="block text-xs text-[#a9bad2]">Tắt để mọi câu trả lời, thống kê và trí nhớ chỉ dùng dữ liệu thật. Bản ghi mẫu vẫn nằm trong DB nhưng bị loại khỏi truy vấn.</span>
+              </span>
+            </label>
+            <label className="block text-xs text-[#a9bad2]">Thời gian giữ dữ liệu (ngày)
+              <input type="number" min={1} max={365} disabled={!canManage} value={settings?.retentionDays ?? 30} onChange={(e) => patchSettings({ retentionDays: Number(e.target.value) })} className="input mt-1" />
+              <span className="mt-1 block text-[11px] text-amber-200">Chính sách đã lưu; tiến trình xóa tự động theo lịch <b>chưa chạy</b> (G7).</span>
+            </label>
+            <p className="text-xs text-[#a9bad2]">Sự kiện mẫu: <b>{admin?.demoEvents ?? "–"}</b> · Sự kiện thật: <b>{admin?.liveEvents ?? "–"}</b></p>
+            <div className="flex flex-wrap gap-2">
+              <a href="/api/report?days=30" className="btn btn-ghost">Xuất CSV 30 ngày</a>
+            </div>
+          </div>
+        </Card>
+
+        <Card title={<span id="devices" className="flex items-center gap-2"><Users className="h-4 w-4 text-sky-300" /> Phiên & thiết bị</span>}>
+          <p className="mb-2 text-xs text-[#a9bad2]">Mã thiết bị trình duyệt: <span className="font-mono text-cyan-200">{typeof window !== "undefined" ? getDeviceId() : "—"}</span> (chỉ để hiển thị, không dùng xác thực).</p>
+          {admin?.sessions?.length ? (
+            <div className="scroll-thin max-h-56 space-y-1 overflow-auto text-xs">
+              {admin.sessions.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 rounded-lg border border-white/10 px-2 py-1">
+                  <Smartphone className="h-4 w-4 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate">{s.user ?? "?"} · {s.role} · {s.device}</span>
+                  <span className="text-[#a9bad2]">{s.revokedAt ? "đã thu hồi" : new Date(s.lastSeenAt).toLocaleDateString("vi-VN")}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-[#a9bad2]">Chỉ chủ hệ thống hoặc vận hành xem được danh sách phiên.</p>
+          )}
+          {isOwner && (
+            <button onClick={() => adminAction("revoke_sessions", "Thu hồi mọi phiên khác")} className="btn btn-ghost mt-2 text-xs">Thu hồi các phiên khác</button>
+          )}
+        </Card>
+
+        <Card title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-emerald-300" /> AI & hiệu năng</span>}>
+          <ul className="space-y-1.5 text-sm text-[#c6d4e6]">
+            <li>• Nhận diện ảnh/khung hình: Vision Worker phía server; lượt đếm do trình duyệt báo được đánh dấu <b>chưa xác minh</b>.</li>
+            <li>• OCR: worker phía server, gọi theo nhu cầu qua Gateway.</li>
+            <li>• Hỏi đáp: phân tích ý định + SQL có kiểm soát; không để mô hình tự bịa số.</li>
+            <li>• Tích hợp VLM cũ: {admin?.visionCloud ? <Badge color="emerald">đã bật (OPENAI_API_KEY)</Badge> : <Badge>tắt (mặc định)</Badge>} — không còn được gọi trực tiếp; dùng cấu hình worker và quyền gửi dữ liệu tại Điều phối AI.</li>
+            <li>• Chi phí API: $0 khi không bật VLM đám mây; chưa có bảng ước tính theo lượt.</li>
+          </ul>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-xl border border-white/10 p-2"><HardDrive className="mb-1 h-4 w-4 text-cyan-300" /><div className="text-lg font-bold">{admin ? (admin.storageBytes / 1024 / 1024).toFixed(1) : "–"} MB</div><div className="text-[11px] text-[#a9bad2]">Dung lượng ảnh/clip</div></div>
+            <div className="rounded-xl border border-white/10 p-2"><Gauge className="mb-1 h-4 w-4 text-emerald-300" /><div className="text-lg font-bold">{admin?.logs.length ?? "–"}</div><div className="text-[11px] text-[#a9bad2]">Bản ghi nhật ký gần đây</div></div>
+          </div>
+          <p className="mt-2 text-[11px] text-amber-200">Chỉ số GPU/VRAM và độ trễ suy luận chưa đo được trên bản web — sẽ có ở G3 khi có dịch vụ nền.</p>
+        </Card>
+
+        <Card title={<span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-300" /> Quyền riêng tư & bảo mật</span>}>
+          <p className="text-sm text-[#c6d4e6]">Dữ liệu camera/ảnh/âm thanh chỉ hiển thị cho phiên đã đăng nhập. Micro chỉ bật khi bạn yêu cầu. Bạn có thể xem, xuất và xóa lịch sử tại đây.</p>
+          <ul className="mt-2 space-y-1 text-xs text-[#a9bad2]">
+            <li>• Mọi API (trừ đăng nhập và healthcheck) đều yêu cầu phiên hợp lệ; cookie ký HMAC, httpOnly.</li>
+            <li>• Vai trò: owner (toàn quyền) · operator (vận hành, không xóa dữ liệu) · viewer (chỉ xem/hỏi).</li>
+            <li>• Nhật ký ghi người thực hiện, vai trò, thiết bị và đối tượng — không dùng deviceId từ trình duyệt làm danh tính.</li>
+            <li>• Chưa có nhận diện danh tính khuôn mặt; chỉ theo dõi đối tượng vô danh.</li>
+          </ul>
+        </Card>
+
+        <Card title={<span className="flex items-center gap-2"><Trash2 className="h-4 w-4 text-rose-300" /> Vùng nguy hiểm (chủ hệ thống)</span>}>
+          {!isOwner ? (
+            <NoPermissionState what="xóa dữ liệu" />
+          ) : (
+            <div className="space-y-3 text-sm">
+              <p className="text-xs text-[#a9bad2]">Để xác nhận, nhập chính xác <b className="font-mono text-rose-200">XOA DU LIEU</b>. Hành động được ghi vào nhật ký kèm người thực hiện.</p>
+              <input value={phrase} onChange={(e) => setPhrase(e.target.value)} placeholder="XOA DU LIEU" className="input font-mono" aria-label="Cụm xác nhận" />
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => adminAction("clear_demo", "Xóa toàn bộ dữ liệu mẫu")} disabled={phrase !== "XOA DU LIEU"} className="btn btn-ghost"><Trash2 className="h-4 w-4" /> Xóa dữ liệu mẫu</button>
+                <button onClick={() => adminAction("reset_all", "XÓA TẤT CẢ dữ liệu và tạo lại mẫu")} disabled={phrase !== "XOA DU LIEU"} className="btn btn-danger"><Trash2 className="h-4 w-4" /> Đặt lại toàn bộ</button>
+              </div>
+            </div>
+          )}
+          <p className="mt-2 text-[11px] text-[#a9bad2]">Sao lưu/khôi phục: dùng xuất CSV/JSON; quy trình backup tự động là hạng mục G7 chưa triển khai.</p>
+        </Card>
+      </div>
+
+      <Card title={<span id="audit" className="flex items-center gap-2"><ScrollText className="h-4 w-4 text-cyan-300" /> Nhật ký thao tác</span>}>
+        <div className="scroll-thin max-h-80 overflow-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-[#192941] text-left text-[#a9bad2]"><tr><th className="p-1.5">Thời gian</th><th>Người thực hiện</th><th>Hành động</th><th>Đối tượng</th><th>Thiết bị</th><th>Chi tiết</th></tr></thead>
+            <tbody>
+              {admin?.logs.map((l) => (
+                <tr key={l.id} className="border-t border-white/5">
+                  <td className="whitespace-nowrap p-1.5">{new Date(l.createdAt).toLocaleString("vi-VN")}</td>
+                  <td>{l.actor ?? "—"} <span className="text-[#a9bad2]">({l.actorRole ?? "—"})</span></td>
+                  <td className="font-mono text-cyan-200">{l.action}</td>
+                  <td>{l.targetType}{l.targetId ? ` #${l.targetId}` : ""}</td>
+                  <td className="font-mono text-[#a9bad2]">{l.device ?? "—"}</td>
+                  <td className="max-w-xs truncate text-[#a9bad2]">{l.detail}</td>
+                </tr>
+              ))}
+              {!admin?.logs.length && <tr><td colSpan={6} className="p-4 text-center text-slate-500">Chưa có thao tác nào hoặc bạn không có quyền xem nhật ký.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}

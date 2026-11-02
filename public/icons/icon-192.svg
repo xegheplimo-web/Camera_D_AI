@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="Camera D-AI">
+  <rect width="192" height="192" rx="40" fill="#080f1e"/>
+  <rect x="30" y="42" width="132" height="108" rx="46" fill="#e8eef8"/>
+  <rect x="44" y="58" width="104" height="72" rx="32" fill="#070d18"/>
+  <path d="M64 96 Q76 80 88 96" stroke="#22d3ee" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M104 96 Q116 80 128 96" stroke="#22d3ee" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <circle cx="96" cy="26" r="6" fill="#22d3ee"/>
+  <rect x="70" y="158" width="52" height="20" rx="10" fill="#c8d6e8"/>
+  <text x="96" y="174" text-anchor="middle" font-family="system-ui" font-size="13" font-weight="700" fill="#0b1526">AI</text>
+</svg>

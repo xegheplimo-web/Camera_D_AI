@@ -1,0 +1,9 @@
+# Minh họa, cần đối chiếu với phiên bản go2rtc được cài thực tế.
+# QUAN TRỌNG: chỉ truy cập giao diện quản trị go2rtc qua localhost.
+api:
+  listen: 127.0.0.1:1984
+rtsp:
+  listen: 127.0.0.1:8554
+webrtc:
+  listen: 127.0.0.1:8555
+streams: {}
