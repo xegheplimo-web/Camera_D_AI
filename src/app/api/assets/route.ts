@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { assets } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { assets, cameras } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { createHash } from "crypto";
 import { audit, problem } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
@@ -34,8 +34,17 @@ export async function POST(req: Request) {
   const height = Number(b?.height) || null;
   if (width && height && width * height > 50_000_000) return problem(413, "Ảnh quá nhiều điểm ảnh");
 
+  const cameraId = b?.cameraId ? Number(b.cameraId) : null;
+  if (cameraId !== null) {
+    if (!Number.isSafeInteger(cameraId) || cameraId <= 0) return problem(400, "Camera ID không hợp lệ");
+    const [cam] = await db.select({ id: cameras.id }).from(cameras).where(eq(cameras.id, cameraId)).limit(1);
+    if (!cam) return problem(400, "Camera không tồn tại");
+  }
+
   const sha256 = createHash("sha256").update(buf).digest("hex");
-  const existing = await db.select({ id: assets.id, sha256: assets.sha256 }).from(assets).where(eq(assets.sha256, sha256)).limit(1);
+  // Dedup is per owner: another user's identical file must not disclose or share their asset id.
+  const existing = await db.select({ id: assets.id, sha256: assets.sha256 }).from(assets)
+    .where(and(eq(assets.sha256, sha256), eq(assets.userId, auth.session.sub))).limit(1);
   if (existing.length) return Response.json({ id: existing[0].id, sha256, duplicate: true, url: `/api/assets/${existing[0].id}` });
 
   const [row] = await db
@@ -49,8 +58,9 @@ export async function POST(req: Request) {
       height,
       sizeBytes: buf.length,
       origin: ["upload", "capture", "clip"].includes(b?.origin) ? b.origin : "upload",
-      cameraId: b?.cameraId ? Number(b.cameraId) : null,
+      cameraId,
       uploadedBy: auth.session.name,
+      userId: auth.session.sub,
     })
     .returning({ id: assets.id });
   await audit(`asset.${b?.origin ?? "upload"}`, { targetType: "asset", targetId: row.id, detail: `${mime} ${buf.length}B` });

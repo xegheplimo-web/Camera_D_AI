@@ -4,6 +4,7 @@ import { and, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 import { parseRange, fmtDateTime, TZ, TZSQL } from "@/lib/time";
 import { thumbMap } from "@/lib/qa";
 import { AiError, type JobInput } from "./types";
+import type { SessionPayload } from "@/lib/token";
 
 type Scope = { where: SQL; start: Date; end: Date; label: string; camera: string };
 export async function reportScope(input: JobInput): Promise<Scope> {
@@ -34,12 +35,12 @@ export async function summaryWorker(input: JobInput) {
   return { scope, totals, daily };
 }
 
-export async function evidenceWorker(input: JobInput) {
+export async function evidenceWorker(input: JobInput, session: SessionPayload) {
   const scope = await reportScope(input);
   // Evidence is resolved from DB only. No remote model can invent an event ID.
   const rows = await db.select().from(events).where(scope.where)
     .orderBy(sql`case when ${events.type} = 'alert' or ${events.priority} = 'critical' then 0 else 1 end`, desc(events.happenedAt)).limit(6);
-  const thumbs = await thumbMap(rows.map((r) => r.assetId));
+  const thumbs = await thumbMap(session, rows.map((r) => r.assetId));
   return rows.map((r) => ({ eventId: r.id, label: r.label, time: fmtDateTime(r.happenedAt), thumb: r.assetId ? thumbs.get(r.assetId) ?? null : null }));
 }
 

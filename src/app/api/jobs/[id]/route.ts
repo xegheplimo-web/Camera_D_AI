@@ -1,8 +1,9 @@
 import { after } from "next/server";
 import { db } from "@/db";
 import { extractions, messages } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { authorize } from "@/lib/auth-server";
+import { extractionScope } from "@/lib/scope";
 import { changeJob, dispatchJobs, getJob, jobView } from "@/lib/ai/jobs";
 import { aiProblem, readJson, throttle } from "@/lib/ai/http";
 import { AiError, TERMINAL } from "@/lib/ai/types";
@@ -16,8 +17,8 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const job = await getJob(id, auth.session);
   if (!job) return Response.json({ title: "Không tìm thấy tác vụ trong phạm vi được phép", status: 404 }, { status: 404 });
   let extraction = null, assistant = null;
-  if (job.input.extractionId) extraction = (await db.select().from(extractions).where(eq(extractions.id, job.input.extractionId)).limit(1))[0] ?? null;
-  if (job.result?.assistantId) assistant = (await db.select().from(messages).where(eq(messages.id, job.result.assistantId)).limit(1))[0] ?? null;
+  if (job.input.extractionId) extraction = (await db.select().from(extractions).where(and(eq(extractions.id, job.input.extractionId), extractionScope(auth.session))).limit(1))[0] ?? null;
+  if (job.result?.assistantId) assistant = (await db.select().from(messages).where(and(eq(messages.id, job.result.assistantId), eq(messages.userId, job.userId))).limit(1))[0] ?? null;
   if (!TERMINAL.includes(job.state)) after(() => dispatchJobs());
   return Response.json({ job: jobView(job), extraction, assistant });
 }

@@ -38,3 +38,29 @@
 1. Trang login: bỏ box gợi ý mật khẩu demo còn sót (`CameraDAI!2026`…) — mâu thuẫn với seed fail-closed.
 2. `package-lock.json` bổ sung để build có thể tái lập.
 3. ESLint: 6 quy tắc react-compiler strict hạ về warning (nợ được ghi nhận, không ẩn).
+
+## CAM-G1-001 — Object-level authorization (branch `feat/g1-001-scope`, chưa merge)
+
+Nâng security từ "session/RBAC có" lên "object-level authorization có" theo GPT review (cross-user leak = P0). Chi tiết hợp đồng scope: `docs/SECURITY_MAP.md`.
+
+Thay đổi chính:
+
+- **`src/lib/scope.ts` (mới)** — `authorizeResource(session, kind, id, mode)` trả `{ok,row}` hoặc `{ok:false,response:404}` đồng nhất + audit `scope.denied`. Predicates `assetReadScope`, `extractionScope(read|write)` dùng chung cho mọi query. Không thêm framework.
+- **Migration `006_user_scope.sql`** — `assets.user_id` + `extractions.user_id` (idempotent `IF NOT EXISTS`, backfill từ display-name, index, rollback block trong comment). Row không backfill được = owner-only (fail-closed).
+- **Route vá P0:** `GET /api/assets/[id]` (trước không auth), `GET /api/events`, `GET /api/dashboard`, `GET /api/stats` (trước không auth) — tất cả giờ `authorize()` + scope.
+- **Áp scope:** cameras `[id]/stream`+`[id]/connect` (`authorizeResource("camera")`), events POST (attach asset scope-checked) + `[id]` PATCH/DELETE, extractions list/POST/PATCH/DELETE (`userId` bind), jobs `getJob`/`enqueueJob` (re-check asset trong tx) + `jobs/[id]` (extraction + assistant pinned `userId=job.userId`).
+- **AI facts:** `answerQuestion(question, session)` — mọi count/search/evidence qua scope predicates; `thumbMap(session, ids)` chỉ resolve thumb trong scope caller; workers (`evidenceWorker`, `assetImage`, `imageWorker`) chạy dưới `SessionPayload` của requester, không phải quyền hệ thống.
+- **Owner override (documented):** owner đọc/delete mọi object (admin model, khớp `jobs?scope=all` có sẵn); operator/viewer chỉ own+shared.
+
+### Bằng chứng verify (chạy thật sau thay đổi, Windows + Node 24)
+
+| Gate | Kết quả |
+|---|---|
+| `npx tsc --noEmit` | exit 0, 0 lỗi |
+| `npm run lint` | 0 lỗi / 30 warnings (không tăng so với baseline) |
+| `npm run build` | exit 0 |
+| `node --import tsx --test tests/scope-rbac.test.ts` | **25/25 PASS** (2 users × 3 roles; 401/403/404 + IDOR + owner override + shared contract) |
+| `npm run test:ai` | 26/26 PASS (không regression) |
+| `npm run test:camera` | 4/4 PASS (không regression) |
+
+Negative-test coverage cho endpoint trước đây thiếu authorization: `assets/[id]` GET, `events` GET, `dashboard` GET, `stats` GET — đều assert 401 unauthenticated + cross-user 404 trong suite mới.

@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   const where = and(...(settings.demoMode ? [] : [sql`${events.source} <> 'demo'`]), gte(events.happenedAt, from), sql`(${events.type} = 'alert' or ${events.priority} in ('important','critical'))`);
   const rows = await db.select().from(events).where(where).orderBy(desc(events.happenedAt)).limit(100);
   const cams = await db.select().from(cameras);
-  const tm = await thumbMap(rows.map((r) => r.assetId));
+  const tm = await thumbMap(auth.session, rows.map((r) => r.assetId));
   const rules = await db.select().from(alertRules).orderBy(alertRules.id);
   const [counts] = await db
     .select({

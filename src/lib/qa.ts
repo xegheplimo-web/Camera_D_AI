@@ -3,6 +3,8 @@ import { events, assets, extractions, cameras, type AnswerPayload } from "@/db/s
 import { and, asc, desc, eq, gte, lt, sql, ilike, or, inArray, type SQL } from "drizzle-orm";
 import { parseRange, fmtTime, fmtDateTime, addDays, TZ, TZSQL } from "./time";
 import { getSettings } from "./settings";
+import { assetReadScope, extractionScope } from "./scope";
+import type { SessionPayload } from "./token";
 
 type Metric = {
   key: string;
@@ -21,11 +23,11 @@ const METRICS: Record<string, Metric> = {
   event: { key: "event", noun: "sự kiện", types: [] },
 };
 
-export async function thumbMap(assetIds: (number | null)[]) {
+export async function thumbMap(session: SessionPayload, assetIds: (number | null)[]) {
   const ids = Array.from(new Set(assetIds.filter((x): x is number => typeof x === "number")));
   const map = new Map<number, string>();
   if (!ids.length) return map;
-  const rows = await db.select({ id: assets.id, url: assets.url, kind: assets.kind }).from(assets).where(inArray(assets.id, ids));
+  const rows = await db.select({ id: assets.id, url: assets.url, kind: assets.kind }).from(assets).where(and(inArray(assets.id, ids), assetReadScope(session)));
   for (const r of rows) map.set(r.id, r.url ?? `/api/assets/${r.id}`);
   return map;
 }
@@ -98,7 +100,7 @@ function memoryLink(params: Record<string, string | number | undefined>) {
   return `/memory?${p.toString()}`;
 }
 
-export async function answerQuestion(question: string): Promise<AnswerPayload> {
+export async function answerQuestion(question: string, session: SessionPayload): Promise<AnswerPayload> {
   const q = question.trim();
   const s = q.toLowerCase();
   if (!q) return base("Bạn hãy nhập hoặc nói câu hỏi nhé.", "HELP");
@@ -120,18 +122,20 @@ export async function answerQuestion(question: string): Promise<AnswerPayload> {
   const demoCond = and(eq(events.clientReported, false), ...(demoMode ? [] : [sql`${events.source} <> 'demo'`]))!;
   const range = parseRange(s);
   const cam = await detectCamera(s);
+  const assetScope = assetReadScope(session);
+  const exScope = extractionScope(session);
 
-  // --- Memory store counts (assets / notes / extractions)
+  // --- Memory store counts (assets / notes / extractions) — scoped to this user + shared workspace media
   if (/ảnh đã lưu|bao nhiêu ảnh|số ảnh|ghi chú|trích xuất|video đã lưu|clip/.test(s) && !/tìm/.test(s)) {
-    const [img] = await db.select({ c: sql<number>`count(*)::int` }).from(assets).where(and(eq(assets.kind, "image"), sql`${assets.origin} <> 'demo'`));
-    const [vid] = await db.select({ c: sql<number>`count(*)::int` }).from(assets).where(eq(assets.kind, "video"));
-    const [ex] = await db.select({ c: sql<number>`count(*)::int`, v: sql<number>`count(*) filter (where ${extractions.status} = 'VERIFIED')::int` }).from(extractions);
+    const [img] = await db.select({ c: sql<number>`count(*)::int` }).from(assets).where(and(eq(assets.kind, "image"), sql`${assets.origin} <> 'demo'`, assetScope));
+    const [vid] = await db.select({ c: sql<number>`count(*)::int` }).from(assets).where(and(eq(assets.kind, "video"), assetScope));
+    const [ex] = await db.select({ c: sql<number>`count(*)::int`, v: sql<number>`count(*) filter (where ${extractions.status} = 'VERIFIED')::int` }).from(extractions).where(exScope);
     const a = base(`Kho trí nhớ đang có ${img.c} ảnh, ${vid.c} video/clip và ${ex.c} ghi chú trích xuất (${ex.v} đã xác minh).`, "DETERMINISTIC_AGGREGATION");
     a.value = img.c;
     a.details = [`Ảnh do người dùng chụp/tải: ${img.c}`, `Video/clip đã lưu: ${vid.c}`, `Ghi chú trích xuất: ${ex.c}`, `Đã xác minh: ${ex.v} · Tạm: ${ex.c - ex.v}`];
-    a.calculation = { aggregation: "COUNT", tables: ["assets", "extractions"], note: "Không tính ảnh mẫu của camera demo" };
-    const recent = await db.select().from(extractions).orderBy(desc(extractions.createdAt)).limit(3);
-    const tm = await thumbMap(recent.map((r) => r.assetId));
+    a.calculation = { aggregation: "COUNT", tables: ["assets", "extractions"], scope: session.role === "owner" ? "all" : "mine+shared", note: "Không tính ảnh mẫu của camera demo" };
+    const recent = await db.select().from(extractions).where(exScope).orderBy(desc(extractions.createdAt)).limit(3);
+    const tm = await thumbMap(session, recent.map((r) => r.assetId));
     a.evidence = recent.map((r) => ({ extractionId: r.id, label: r.title, time: fmtDateTime(r.createdAt), thumb: tm.get(r.assetId) ?? null }));
     a.evidenceCount = a.evidence.length;
     a.nextActions = [{ label: "Mở Trí nhớ", href: "/memory?tab=notes" }, { label: "Trích xuất ảnh mới", href: "/extract" }];
@@ -151,8 +155,8 @@ export async function answerQuestion(question: string): Promise<AnswerPayload> {
     const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(events).where(where);
     const rows = await db.select().from(events).where(where).orderBy(desc(events.happenedAt)).limit(6);
     const exConds = terms.map((t) => or(ilike(extractions.note, `%${t}%`), ilike(extractions.title, `%${t}%`), sql`${extractions.result}::text ilike ${"%" + t + "%"}`)!);
-    const exRows = exConds.length ? await db.select().from(extractions).where(or(...exConds)).orderBy(desc(extractions.createdAt)).limit(4) : [];
-    const tm = await thumbMap([...rows.map((r) => r.assetId), ...exRows.map((r) => r.assetId)]);
+    const exRows = exConds.length ? await db.select().from(extractions).where(and(or(...exConds), exScope)).orderBy(desc(extractions.createdAt)).limit(4) : [];
+    const tm = await thumbMap(session, [...rows.map((r) => r.assetId), ...exRows.map((r) => r.assetId)]);
     if (!c && !exRows.length) {
       const a = base(`Chưa tìm thấy dữ liệu khớp với “${terms.join(" ")}”${range.explicit ? ` trong ${range.label}` : ""}.`, "INSUFFICIENT_DATA");
       a.details = ["Thử từ khóa ngắn hơn (ví dụ: “xe máy”, “cảnh báo”, “kho”).", "Nếu cần trích xuất biển số/văn bản, hãy chụp ảnh và dùng màn Ảnh & Trích xuất."];
@@ -256,7 +260,7 @@ export async function answerQuestion(question: string): Promise<AnswerPayload> {
     const mid = await db.select().from(events).where(where).orderBy(asc(events.happenedAt)).offset(Math.floor(total / 2)).limit(1);
     const ev = [first[0], mid[0], last[0]].filter(Boolean);
     const uniq = ev.filter((e, i) => ev.findIndex((x) => x.id === e.id) === i);
-    const tm = await thumbMap(uniq.map((e) => e.assetId));
+    const tm = await thumbMap(session, uniq.map((e) => e.assetId));
     a.evidence = uniq.map((e) => ({ eventId: e.id, label: e.label, time: fmtTime(e.happenedAt), thumb: e.assetId ? tm.get(e.assetId) ?? null : null }));
     a.evidenceCount = total;
   }

@@ -82,9 +82,10 @@ export const assets = pgTable(
     origin: text("origin").notNull().default("upload"),
     cameraId: integer("camera_id"),
     uploadedBy: text("uploaded_by"), // session identity, never the raw client claim
+    userId: integer("user_id").references(() => users.id), // object-scope owner; NULL only on legacy/demo rows
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("assets_sha_idx").on(t.sha256)]
+  (t) => [index("assets_sha_idx").on(t.sha256), index("assets_user_idx").on(t.userId)]
 );
 
 export const events = pgTable(
@@ -152,10 +153,11 @@ export const extractions = pgTable(
     verifiedBy: text("verified_by"),
     source: text("source").notNull().default("live"),
     createdBy: text("created_by"),
+    userId: integer("user_id").references(() => users.id), // object-scope owner; NULL only on legacy/demo rows
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("extractions_status_idx").on(t.status)]
+  (t) => [index("extractions_status_idx").on(t.status), index("extractions_user_idx").on(t.userId)]
 );
 
 export type AnswerPayload = {

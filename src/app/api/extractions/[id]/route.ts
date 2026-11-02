@@ -3,6 +3,7 @@ import { extractions, events, assets, cameras, aiJobs, type ExtractionResult } f
 import { and, eq, sql } from "drizzle-orm";
 import { audit } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
+import { authorizeResource } from "@/lib/scope";
 import { AiError } from "@/lib/ai/types";
 import { aiProblem, readJson } from "@/lib/ai/http";
 import { normalizeExtraction } from "@/lib/ai/vision-worker";
@@ -18,6 +19,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const row = await db.transaction(async (tx) => {
       const [cur] = await tx.select().from(extractions).where(eq(extractions.id, Number(id))).for("update").limit(1);
       if (!cur) throw new AiError("NOT_FOUND", "Không tìm thấy trích xuất.", 404);
+      const scoped = await authorizeResource(auth.session, "extraction", cur.id, "write");
+      if (!scoped.ok) throw new AiError("NOT_FOUND", "Không tìm thấy trích xuất trong phạm vi được phép.", 404);
       if (cur.status === "PROCESSING") throw new AiError("STILL_PROCESSING", "Tác vụ còn đang xử lý. Hãy hủy hoặc chờ worker hoàn tất.", 409);
       if (body.action === "verify" && !cur.rawResult) throw new AiError("NO_AI_EVIDENCE", "Chưa có kết quả AI để xác minh. Ghi chú nháp không phải bằng chứng trích xuất.", 409);
       const patch: Partial<typeof extractions.$inferInsert> = { updatedAt: new Date(), version: cur.version + 1 };
@@ -68,6 +71,8 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   if (auth.response) return auth.response;
   const { id } = await ctx.params;
   if (new URL(req.url).searchParams.get("confirm") !== "yes") return aiProblem(new AiError("CONFIRM_REQUIRED", "Cần xác nhận xóa.", 400));
+  const scoped = await authorizeResource(auth.session, "extraction", Number(id), "write");
+  if (!scoped.ok) return scoped.response;
   await db.transaction(async (tx) => {
     await tx.update(aiJobs).set({ state: "cancelled", finishedAt: new Date(), errorCode: "SOURCE_DELETED", error: "Kết quả trích xuất đã bị xóa." })
       .where(and(sql`${aiJobs.input}->>'extractionId' = ${id}`, sql`${aiJobs.state} in ('queued','running')`));

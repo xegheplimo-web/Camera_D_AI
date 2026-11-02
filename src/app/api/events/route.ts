@@ -5,6 +5,7 @@ import { ensureSeed } from "@/lib/seed";
 import { thumbMap } from "@/lib/qa";
 import { audit, problem } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
+import { authorizeResource } from "@/lib/scope";
 import { getSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,8 @@ export const dynamic = "force-dynamic";
 const TYPES = ["person_in", "person_out", "vehicle", "motion", "alert", "snapshot", "manual", "clip"];
 
 export async function GET(req: Request) {
+  const auth = await authorize("read");
+  if (auth.response) return auth.response;
   await ensureSeed();
   const u = new URL(req.url);
   const settings = await getSettings();
@@ -52,7 +55,7 @@ export async function GET(req: Request) {
   const where = conds.length ? and(...conds) : undefined;
   const rows = await db.select().from(events).where(where).orderBy(desc(events.happenedAt), desc(events.id)).limit(limit);
   const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(events).where(where);
-  const tm = await thumbMap(rows.map((r) => r.assetId));
+  const tm = await thumbMap(auth.session, rows.map((r) => r.assetId));
   const cams = await db.select().from(cameras);
   return Response.json({
     total: c,
@@ -74,6 +77,14 @@ export async function POST(req: Request) {
   const cameraId = Number(b.cameraId);
   const cam = (await db.select().from(cameras).where(eq(cameras.id, cameraId)).limit(1))[0];
   if (!cam) return problem(400, "Camera không tồn tại");
+
+  // Evidence attachments must resolve inside the caller's scope (own upload, camera-bound or demo media).
+  if (b.assetId != null) {
+    const assetId = Number(b.assetId);
+    if (!Number.isSafeInteger(assetId) || assetId <= 0) return problem(400, "Mã ảnh không hợp lệ");
+    const scoped = await authorizeResource(auth.session, "asset", assetId);
+    if (!scoped.ok) return scoped.response;
+  }
 
   const idem = b.idempotencyKey ? String(b.idempotencyKey).slice(0, 120) : null;
   if (idem) {

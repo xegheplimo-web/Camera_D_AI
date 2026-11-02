@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { cameras } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { authorize } from "@/lib/auth-server";
+import { authorizeResource } from "@/lib/scope";
 import { audit, problem } from "@/lib/audit";
 import { decryptSource, ensureGo2rtcStream } from "@/lib/camera/stream";
 export const runtime = "nodejs";
@@ -10,8 +11,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (auth.response) return auth.response;
   const id = Number((await params).id);
   if (!Number.isSafeInteger(id) || id <= 0) return problem(400, "Camera ID không hợp lệ");
-  const [cam] = await db.select().from(cameras).where(eq(cameras.id, id)).limit(1);
-  if (!cam || cam.sourceType !== "rtsp" || !cam.sourceCiphertext) return problem(404, "Không có camera IP tương ứng");
+  const scoped = await authorizeResource(auth.session, "camera", id, "write");
+  if (!scoped.ok) return scoped.response;
+  const cam = scoped.row;
+  if (cam.sourceType !== "rtsp" || !cam.sourceCiphertext) return problem(404, "Không có camera IP tương ứng");
   try {
     const name = `dai_cam_${cam.id}`;
     await ensureGo2rtcStream(name, decryptSource(cam.sourceCiphertext));

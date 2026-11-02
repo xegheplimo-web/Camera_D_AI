@@ -6,10 +6,14 @@ import { startOfDayVN, addDays, TZ, TZSQL } from "@/lib/time";
 import { thumbMap } from "@/lib/qa";
 import { getSettings } from "@/lib/settings";
 import { publicCamera } from "@/lib/camera/public";
+import { authorize } from "@/lib/auth-server";
+import { assetReadScope, extractionScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const auth = await authorize("read");
+  if (auth.response) return auth.response;
   await ensureSeed();
   const settings = await getSettings();
   const demoCond = settings.demoMode ? undefined : sql`${events.source} <> 'demo'`;
@@ -42,17 +46,19 @@ export async function GET() {
     .groupBy(hourExpr)
     .orderBy(hourExpr);
 
+  const assetScope = assetReadScope(auth.session);
   const [mem] = await db
     .select({
       images: sql<number>`count(*) filter (where ${assets.kind} = 'image' and ${assets.origin} <> 'demo')::int`,
       videos: sql<number>`count(*) filter (where ${assets.kind} = 'video')::int`,
     })
-    .from(assets);
+    .from(assets)
+    .where(assetScope);
   const [ex] = await db
     .select({ notes: sql<number>`count(*)::int`, verified: sql<number>`count(*) filter (where ${extractions.status} = 'VERIFIED')::int` })
-    .from(extractions).where(settings.demoMode ? undefined : sql`${extractions.source} <> 'demo'`);
+    .from(extractions).where(and(extractionScope(auth.session), settings.demoMode ? undefined : sql`${extractions.source} <> 'demo'`));
   const [allEv] = await db.select({ c: sql<number>`count(*)::int` }).from(events).where(demoCond);
-  const [store] = await db.select({ bytes: sql<number>`coalesce(sum(${assets.sizeBytes}),0)::bigint` }).from(assets);
+  const [store] = await db.select({ bytes: sql<number>`coalesce(sum(${assets.sizeBytes}),0)::bigint` }).from(assets).where(assetScope);
   const [sync] = await db.select({ last: sql<Date | null>`max(${events.happenedAt})` }).from(events).where(demoCond);
   const [unacked] = await db.select({ c: sql<number>`count(*) filter (where ${events.ackAt} is null)::int` }).from(events).where(and(sql`${events.type} = 'alert'`, ...(demoCond ? [demoCond] : [])));
   const [demoShare] = await db.select({ demo: sql<number>`count(*) filter (where ${events.source} = 'demo')::int`, all: sql<number>`count(*)::int` }).from(events);
@@ -70,7 +76,7 @@ export async function GET() {
     .groupBy(events.cameraId);
 
   const recent = await db.select().from(events).where(demoCond).orderBy(desc(events.happenedAt)).limit(8);
-  const tm = await thumbMap(recent.map((r) => r.assetId));
+  const tm = await thumbMap(auth.session, recent.map((r) => r.assetId));
   const latestAlert = await db.select().from(events).where(and(eq(events.type, "alert"), gte(events.happenedAt, new Date(Date.now() - 3600000)), ...(demoCond ? [demoCond] : []))).limit(1);
 
   return Response.json({

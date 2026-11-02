@@ -1,13 +1,17 @@
-import { db } from "@/db";
-import { assets } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { authorize } from "@/lib/auth-server";
+import { authorizeResource } from "@/lib/scope";
+import { problem } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
-  const [row] = await db.select().from(assets).where(eq(assets.id, Number(id))).limit(1);
-  if (!row) return new Response("Not found", { status: 404 });
+  const auth = await authorize("read");
+  if (auth.response) return auth.response;
+  const id = Number((await ctx.params).id);
+  if (!Number.isSafeInteger(id) || id <= 0) return problem(400, "Mã ảnh không hợp lệ");
+  const scoped = await authorizeResource(auth.session, "asset", id);
+  if (!scoped.ok) return scoped.response;
+  const row = scoped.row;
   if (row.url) return Response.redirect(new URL(row.url, req.url), 302);
   if (!row.data) return new Response("Gone", { status: 410 });
   const buf = Buffer.from(row.data, "base64");
