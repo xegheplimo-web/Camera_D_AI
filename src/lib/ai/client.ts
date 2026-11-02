@@ -15,5 +15,5 @@ export async function waitForJob<E = unknown, M = unknown>(id: string, onUpdate:
       signal.addEventListener("abort", stop, { once: true });
     });
   }
-  throw new Error("Tác vụ vẫn được lưu trên máy chủ. Mở Điều phối AI để kiểm tra hoặc tiếp tục theo dõi.");
+  throw new Error("Tác vụ vẫn được lưu trên máy chủ. Tải lại trang để tiếp tục theo dõi.");
 }

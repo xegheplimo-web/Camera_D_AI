@@ -59,7 +59,7 @@ export async function enqueueJob(kind: JobKind, input: JobInput, session: Sessio
       requesterDevice: session.device, kind, title: draft?.title ?? input.question ?? "Tác vụ AI",
       input: savedInput, inputHash, idempotencyKey: key,
       route: kind === "extract" && requiredTools(kind, input.note, input.taskType).length === 1 ? "worker" : "hermes",
-      steps: [{ id: "gateway", worker: "Gateway", label: "Xác thực, kiểm tra quyền và lưu yêu cầu", state: "succeeded" }],
+      steps: [{ id: "gateway", worker: "Dịch vụ AI", label: "Xác thực, kiểm tra quyền và lưu yêu cầu", state: "succeeded" }],
     }).returning();
     if (kind === "report") {
       await tx.insert(messages).values({ userId: session.sub, role: "user", text: input.question!, device: session.device,
@@ -103,7 +103,7 @@ export async function runJob(id: string) {
   controllers.set(id, controller);
   const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(55_000)]);
   const started = Date.now();
-  const steps: Step[] = [{ id: "gateway", worker: "Gateway", label: "Đã kiểm tra quyền và khóa yêu cầu", state: "succeeded" }];
+  const steps: Step[] = [{ id: "gateway", worker: "Dịch vụ AI", label: "Đã kiểm tra quyền và khóa yêu cầu", state: "succeeded" }];
   let writeChain = Promise.resolve();
   let route = job.route;
   let fallbackReason: string | undefined;
@@ -128,7 +128,7 @@ export async function runJob(id: string) {
 
     let tools = requiredTools(job.kind, job.input.note, job.input.taskType);
     const useHermes = job.kind === "report" || tools.length > 1;
-    const planning: Step = { id: "plan", worker: "Hermes", label: "Lập kế hoạch chọn AI Worker", state: useHermes ? "running" : "skipped", note: useHermes ? undefined : "Tác vụ đơn: Gateway chuyển thẳng đến worker, bỏ qua Hermes.", startedAt: new Date().toISOString() };
+    const planning: Step = { id: "plan", worker: "Trợ lý AI", label: "Lập kế hoạch và chọn bước xử lý", state: useHermes ? "running" : "skipped", note: useHermes ? undefined : "Tác vụ đơn: chuyển thẳng đến xử lý AI, bỏ qua Trợ lý AI.", startedAt: new Date().toISOString() };
     steps.push(planning);
     await persist(12);
     if (useHermes) {
@@ -145,7 +145,7 @@ export async function runJob(id: string) {
         route = "fallback";
         planning.state = "failed";
         planning.note = `${info.code}: ${info.message}`;
-        fallbackReason = `Hermes chưa sẵn sàng (${info.code}); Gateway dùng kế hoạch dự phòng giới hạn. Không thay thế phân tích sâu bằng kết luận suy đoán.`;
+        fallbackReason = `Trợ lý AI chưa sẵn sàng (${info.code}); hệ thống dùng kế hoạch dự phòng giới hạn. Không thay thế phân tích sâu bằng kết luận suy đoán.`;
       }
       planning.durationMs = Date.now() - t;
     } else route = "worker";
@@ -156,7 +156,7 @@ export async function runJob(id: string) {
       "vision.extract": "Quan sát và đếm trong ảnh/ROI",
       "ocr.extract": "Đọc văn bản, nhãn và bảng dữ liệu",
     };
-    tools.forEach((tool) => steps.push({ id: tool, worker: tool.startsWith("memory") ? "Memory / SQL" : tool.startsWith("vision") ? "Vision AI" : "OCR AI", label: labels[tool], state: "waiting" }));
+    tools.forEach((tool) => steps.push({ id: tool, worker: tool.startsWith("memory") ? "Trí nhớ / SQL" : tool.startsWith("vision") ? "Nhận diện hình ảnh" : "Nhận dạng văn bản", label: labels[tool], state: "waiting" }));
     await persist(25);
 
     let summary: MemorySummary | undefined;
@@ -194,9 +194,9 @@ export async function runJob(id: string) {
     let extractionResult: ExtractionResult | undefined;
     if (job.kind === "report") {
       if (!summary) throw new AiError("MEMORY_UNAVAILABLE", "Không truy xuất được số liệu nguồn. Không tạo báo cáo không có căn cứ.");
-      result.answer = buildReport(summary, evidence, fallbackReason);
+      result.answer = buildReport(summary, evidence, fallbackReason, requester.role);
       result.answer.warnings.push(...failures);
-      result.answer.execution = { path: route, jobId: job.id, durationMs: Date.now() - started, reason: route === "hermes" ? "Hermes chọn công cụ; số liệu và bằng chứng do Memory/SQL Worker cung cấp." : "Gateway dự phòng: chỉ tổng hợp dữ liệu đã lưu, không phân tích video." };
+      result.answer.execution = { path: route, jobId: job.id, durationMs: Date.now() - started, reason: route === "hermes" ? "Trợ lý AI chọn công cụ; số liệu và bằng chứng do Trí nhớ/SQL cung cấp." : "Dịch vụ AI dự phòng: chỉ tổng hợp dữ liệu đã lưu, không phân tích video." };
     } else {
       extractionResult = mergeImageResults(vision, ocr);
       extractionResult.warnings.push(...failures);
@@ -207,7 +207,7 @@ export async function runJob(id: string) {
     }
     const partial = route === "fallback" || failures.length > 0;
     const finalState = partial ? "partial" : "succeeded";
-    steps.push({ id: "complete", worker: "Gateway", label: job.kind === "report" ? "Lưu báo cáo và liên kết bằng chứng" : "Lưu bản AI gốc, chờ người dùng xác minh", state: "succeeded" });
+    steps.push({ id: "complete", worker: "Dịch vụ AI", label: job.kind === "report" ? "Lưu báo cáo và liên kết bằng chứng" : "Lưu bản AI gốc, chờ người dùng xác minh", state: "succeeded" });
     await db.transaction(async (tx) => {
       // Row lock serializes cancellation with result commit, even on different server instances.
       const [current] = await tx.select().from(aiJobs).where(running).for("update").limit(1);

@@ -40,9 +40,13 @@ function MiniBars({ data }: { data: { label: string; value: number }[] }) {
 
 function AnswerCard({ a, onReplay, onOpen }: { a: AnswerPayload; onReplay: () => void; onOpen: (src: string, label: string) => void }) {
   const [showCalc, setShowCalc] = useState(false);
+  const { role } = useApp();
+  const isOwner = role === "owner";
+  const pathCls = `rounded px-1.5 py-0.5 ${a.execution?.path === "fast" ? "bg-emerald-400/10 text-emerald-200" : a.execution?.path === "fallback" ? "bg-amber-400/10 text-amber-200" : "bg-violet-400/10 text-violet-200"}`;
+  const pathBadge = a.execution?.path === "fast" ? "⚡ Truy vấn trực tiếp · không qua Trợ lý AI" : a.execution?.path === "fallback" ? "Dịch vụ AI dự phòng · kết quả giới hạn" : "Trợ lý AI → xử lý AI";
   return (
     <div className="space-y-2">
-      {a.execution && <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400"><Link href="/orchestration" className={`rounded px-1.5 py-0.5 ${a.execution.path === "fast" ? "bg-emerald-400/10 text-emerald-200" : a.execution.path === "fallback" ? "bg-amber-400/10 text-amber-200" : "bg-violet-400/10 text-violet-200"}`}>{a.execution.path === "fast" ? "⚡ Gateway → SQL · không gọi Hermes" : a.execution.path === "fallback" ? "Gateway dự phòng · kết quả giới hạn" : "Hermes → AI Workers"}</Link>{a.execution.durationMs !== undefined && <span>{a.execution.durationMs} ms xử lý phía server</span>}</div>}
+      {a.execution && <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400">{isOwner ? <Link href="/admin" className={pathCls}>{pathBadge}</Link> : <span className={pathCls}>{pathBadge}</span>}{a.execution.durationMs !== undefined && <span>{a.execution.durationMs} ms xử lý phía server</span>}</div>}
       <p className="font-semibold leading-snug text-white">{a.short}</p>
       {a.details.length > 0 && (
         <ul className="space-y-0.5 text-[13px] text-slate-300">
@@ -76,19 +80,22 @@ function AnswerCard({ a, onReplay, onOpen }: { a: AnswerPayload; onReplay: () =>
         <button onClick={onReplay} className="flex items-center gap-1 rounded-full bg-white/5 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/10" aria-label="Phát lại giọng nói">
           <RotateCcw className="h-3 w-3" /> Đọc lại
         </button>
-        {a.nextActions.map((n) => (
+        {a.nextActions.filter((n) => isOwner || (n.href !== "/orchestration" && n.href !== "/admin")).map((n) => (
           <Link key={n.href + n.label} href={n.href} className="rounded-full bg-cyan-500/15 px-2 py-1 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/25">{n.label} →</Link>
         ))}
       </div>
-      {showCalc && a.calculation && (
-        <pre className="scroll-thin max-h-40 overflow-auto rounded-lg bg-black/40 p-2 text-[11px] text-cyan-100">{JSON.stringify({ kind: a.kind, value: a.value, ...a.calculation }, null, 2)}</pre>
-      )}
+      {showCalc && a.calculation && (() => {
+        const display = { ...(a.calculation as Record<string, unknown>) };
+        if (!isOwner) delete display.worker;
+        return <pre className="scroll-thin max-h-40 overflow-auto rounded-lg bg-black/40 p-2 text-[11px] text-cyan-100">{JSON.stringify({ kind: a.kind, value: a.value, ...display }, null, 2)}</pre>;
+      })()}
     </div>
   );
 }
 
 export default function ChatPanel({ compact = false }: { compact?: boolean }) {
-  const { mood, setMood, speak, stopSpeak, speaking, voiceOut, setVoiceOut, voiceNotice } = useApp();
+  const { mood, setMood, speak, stopSpeak, speaking, voiceOut, setVoiceOut, voiceNotice, role } = useApp();
+  const isOwner = role === "owner";
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -126,7 +133,7 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
       const result = await waitForJob<unknown, Msg>(id, setJob, controller.signal);
       if (controller.signal.aborted) return;
       if (result.assistant) finishAnswer(result.assistant);
-      else { setErr(result.job.error ?? "Tác vụ chưa có câu trả lời. Xem Điều phối AI để kiểm tra."); setMood("idle"); }
+      else { setErr(result.job.error ?? "Tác vụ chưa có câu trả lời. Hãy thử lại sau."); setMood("idle"); }
     } catch (e) {
       if (!controller.signal.aborted) { setErr(e instanceof Error ? e.message : "Không theo dõi được tác vụ"); setMood("error"); }
     } finally { if (!controller.signal.aborted) setBusy(false); }
@@ -220,7 +227,7 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
             </div>
           )
         )}
-        {job && (["queued", "running", "failed", "cancelled"].includes(job.state) ? <JobProgress job={job} compact onUpdate={(updated) => { setJob(updated); if (updated.state === "queued") void followJob(updated.id); }} /> : <details className="rounded-xl border border-white/5 px-3 py-2 text-[11px] text-slate-400"><summary className="cursor-pointer">Xem tiến trình điều phối · #{job.id.slice(0, 8)}</summary><div className="mt-2"><JobProgress job={job} compact onUpdate={(updated) => { setJob(updated); if (updated.state === "queued") void followJob(updated.id); }} /></div></details>)}
+        {job && (["queued", "running", "failed", "cancelled"].includes(job.state) ? <JobProgress job={job} compact onUpdate={(updated) => { setJob(updated); if (updated.state === "queued") void followJob(updated.id); }} /> : <details className="rounded-xl border border-white/5 px-3 py-2 text-[11px] text-slate-400"><summary className="cursor-pointer">Xem tiến trình xử lý · #{job.id.slice(0, 8)}</summary><div className="mt-2"><JobProgress job={job} compact onUpdate={(updated) => { setJob(updated); if (updated.state === "queued") void followJob(updated.id); }} /></div></details>)}
         {busy && !job && (
           <div className="flex items-center gap-2 text-sm text-slate-400">
             <div className="grid h-7 w-7 place-items-center rounded-full bg-cyan-500/20 text-[10px] font-bold text-cyan-300">AI</div>
@@ -240,8 +247,8 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
             ))}
           </div>
         ) : null}
-        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-slate-500"><span>{voice.source}</span><Link href="/orchestration" className="text-cyan-300 hover:underline">Gateway & AI Workers →</Link></div>
-        {transcribing && <div className="flex items-center gap-2 text-xs text-cyan-200"><span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" /> Voice Worker đang nhận dạng lời nói…</div>}
+        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-slate-500"><span>{voice.source}</span>{isOwner && <Link href="/admin" className="text-cyan-300 hover:underline">Gateway & AI Workers →</Link>}</div>
+        {transcribing && <div className="flex items-center gap-2 text-xs text-cyan-200"><span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" /> Đang nhận dạng giọng nói…</div>}
         {voiceNotice && <p className="text-[10px] text-slate-400">{voiceNotice}</p>}
         {err && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-xs text-red-200" role="alert">{err}</div>}
 

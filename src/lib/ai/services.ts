@@ -6,7 +6,7 @@ import { AiError, type ServiceName } from "./types";
 
 type ServiceConfig = { base: URL; key: string; model: string; remote: boolean };
 const PREFIX: Record<ServiceName, string> = { hermes: "HERMES", vision: "DAI_VISION", ocr: "DAI_OCR", voice: "DAI_VOICE" };
-export const SERVICE_LABELS: Record<ServiceName, string> = { hermes: "Hermes", vision: "Vision AI", ocr: "OCR AI", voice: "Voice AI" };
+export const SERVICE_LABELS: Record<ServiceName, string> = { hermes: "Trợ lý AI", vision: "Nhận diện hình ảnh", ocr: "Nhận dạng văn bản", voice: "Giọng nói AI" };
 
 function privateHost(host: string): boolean {
   const h = host.toLowerCase().replace(/^\[|\]$/g, "");
@@ -53,12 +53,12 @@ export async function serviceFetch(name: ServiceName, path: string, init: Reques
   const c = serviceConfig(name);
   if (!c) throw new AiError("NOT_CONFIGURED", `${SERVICE_LABELS[name]} chưa được cấu hình trên máy chủ.`);
   const settings = await getSettings();
-  if (name === "hermes" && !settings.hermesEnabled) throw new AiError("HERMES_DISABLED", "Hermes đang được tạm dừng; Gateway vẫn xử lý đường nhanh.");
+  if (name === "hermes" && !settings.hermesEnabled) throw new AiError("HERMES_DISABLED", "Trợ lý AI đang được tạm dừng; dịch vụ AI vẫn xử lý đường nhanh.");
   if (c.remote && (!settings.remoteProcessingAllowed || options.allowRemote !== true))
     throw new AiError("CONSENT_REQUIRED", "Chưa cho phép gửi dữ liệu đến dịch vụ AI ngoài mạng riêng.", 403);
   const [state] = await db.select().from(aiServices).where(eq(aiServices.name, name)).limit(1);
   if (!options.probe && state?.cooldownUntil && state.cooldownUntil > new Date())
-    throw new AiError("CIRCUIT_OPEN", `${SERVICE_LABELS[name]} đang tạm nghỉ 30 giây sau các lỗi kết nối. Gateway sẽ dùng phương án dự phòng.`);
+    throw new AiError("CIRCUIT_OPEN", `${SERVICE_LABELS[name]} đang tạm nghỉ 30 giây sau các lỗi kết nối. Dịch vụ AI sẽ dùng phương án dự phòng.`);
   const timeout = Math.min(20000, Math.max(1000, Number(process.env.DAI_AI_TIMEOUT_MS) || 15000));
   const signals = [AbortSignal.timeout(options.probe ? Math.min(timeout, 4000) : timeout), ...(options.signal ? [options.signal] : [])];
   const start = Date.now();
@@ -74,7 +74,7 @@ export async function serviceFetch(name: ServiceName, path: string, init: Reques
     return r;
   } catch (e) {
     if (options.signal?.aborted && (options.signal.reason as Error | undefined)?.name !== "TimeoutError")
-      throw new AiError("CANCELLED", "Đã hủy yêu cầu tại Gateway; không ghi nhận đây là lỗi kết nối dịch vụ.", 409);
+      throw new AiError("CANCELLED", "Đã hủy yêu cầu tại dịch vụ AI; không ghi nhận đây là lỗi kết nối dịch vụ.", 409);
     const code = e instanceof AiError ? e.code : e instanceof Error && ["AbortError", "TimeoutError"].includes(e.name) ? "TIMEOUT" : "UNREACHABLE";
     await markService(name, false, Date.now() - start, code);
     if (options.signal?.aborted) throw new AiError("CANCELLED", "Đã hủy tác vụ.", 409);
@@ -93,7 +93,7 @@ export async function boundedJsonValue(response: Response): Promise<unknown> {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > 2 * 1024 * 1024) throw new AiError("RESPONSE_TOO_LARGE", "Kết quả từ worker vượt giới hạn 2 MB.");
+      if (size > 2 * 1024 * 1024) throw new AiError("RESPONSE_TOO_LARGE", "Kết quả từ xử lý AI vượt giới hạn 2 MB.");
       parts.push(value);
     }
   } catch (e) { await reader.cancel().catch(() => {}); throw e; }
@@ -106,7 +106,7 @@ export async function boundedJsonValue(response: Response): Promise<unknown> {
 
 export async function boundedJson(response: Response): Promise<Record<string, unknown>> {
   const value = await boundedJsonValue(response);
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AiError("INVALID_RESPONSE", "Worker cần trả một JSON object.");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AiError("INVALID_RESPONSE", "Xử lý AI cần trả một JSON object.");
   return value as Record<string, unknown>;
 }
 

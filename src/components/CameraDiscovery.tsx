@@ -118,7 +118,7 @@ export default function CameraDiscovery({ cameras, onAdded, canManage, onControl
       } else if (!result.connected) {
         setError(result.warning || "Đã lưu camera nhưng chưa kết nối được go2rtc. Bật go2rtc rồi dùng nút “Kết nối lại” trên khung hình.");
       } else {
-        setNotice(`Đã kết nối gateway cho ${result.sourceHint ?? "camera IP"} — đang xác minh hình ảnh…`);
+        setNotice(`Đã kết nối nguồn hình cho ${result.sourceHint ?? "camera IP"} — đang xác minh hình ảnh…`);
         const ok = await probeStream(result.id);
         if (ok) setNotice(`Đã thêm ${result.sourceHint ?? "camera IP"} — kết nối thành công, stream đang có hình.`);
         else setError(`Đã lưu ${result.sourceHint ?? "camera"} nhưng chưa nhận được hình sau 15 giây. Kiểm tra lại đường RTSP/nguồn camera, rồi bấm “Kết nối lại” trên khung hình.`);

@@ -71,18 +71,18 @@ try {
   await page.goto(base + "/chat?question=" + encodeURIComponent("Hôm nay có bao nhiêu khách?"));
   await page.getByRole("textbox", { name: "Câu hỏi", exact: true }).waitFor();
   await page.getByRole("button", { name: "Gửi", exact: true }).click();
-  await page.getByText("⚡ Gateway → SQL · không gọi Hermes", { exact: true }).first().waitFor({ timeout: 15000 });
+  await page.getByText("⚡ Truy vấn trực tiếp · không qua Trợ lý AI", { exact: true }).first().waitFor({ timeout: 15000 });
   report.push("PASS: fast SQL reply is visibly identified");
   await page.getByRole("textbox", { name: "Câu hỏi", exact: true }).fill("Phân tích toàn bộ camera tuần trước, tìm bất thường và lập báo cáo");
   await page.getByRole("button", { name: "Gửi", exact: true }).click();
-  await page.getByText("Gateway dự phòng · kết quả giới hạn", { exact: true }).first().waitFor({ timeout: 25000 });
+  await page.getByText("Dịch vụ AI dự phòng · kết quả giới hạn", { exact: true }).first().waitFor({ timeout: 25000 });
   report.push("PASS: unconfigured Hermes clearly returns limited fallback");
   await page.screenshot({ path: "artifacts/screenshots/chat-fallback-desktop.png", fullPage: true });
 
   await page.goto(base + "/memory");
   await page.getByRole("textbox", { name: "Tìm kiếm thông minh", exact: true }).fill("Phân tích toàn bộ camera tuần trước, tìm bất thường và lập báo cáo");
   await page.getByRole("button", { name: "Tìm", exact: true }).click();
-  await page.getByText("Gateway dự phòng · chỉ tổng hợp dữ liệu đã lưu", { exact: true }).waitFor({ timeout: 25000 });
+  await page.getByText("Dịch vụ AI dự phòng · chỉ tổng hợp dữ liệu đã lưu", { exact: true }).waitFor({ timeout: 25000 });
   report.push("PASS: Memory smart search handles asynchronous report jobs without a response-shape error");
 
   const services = await context.request.get(base + "/api/orchestration");

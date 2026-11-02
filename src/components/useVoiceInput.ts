@@ -102,7 +102,7 @@ export default function useVoiceInput(options: { busy: boolean; onText: (t: stri
           } catch (e) {
             if (token.current !== own) return;
             active.current = false; setTranscribing(false); setMood("error");
-            callbacks.current.onError(e instanceof Error ? e.message : "Voice Worker không nhận được lời nói.");
+            callbacks.current.onError(e instanceof Error ? e.message : "Dịch vụ nhận dạng giọng nói không nhận được lời nói.");
           }
         };
         rec.start(250);
@@ -111,7 +111,7 @@ export default function useVoiceInput(options: { busy: boolean; onText: (t: stri
       } else {
         const w = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
         const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-        if (!Ctor) throw new Error("Chưa có Voice Worker STT và trình duyệt không hỗ trợ nhận giọng nói. Hãy nhập văn bản.");
+        if (!Ctor) throw new Error("Chưa có dịch vụ nhận dạng giọng nói và trình duyệt không hỗ trợ. Hãy nhập văn bản.");
         const sr = new Ctor(); recognition.current = sr;
         sr.lang = "vi-VN"; sr.interimResults = true; sr.continuous = true;
         sr.onresult = (event) => { if (token.current !== own) return; text.current = Array.from(event.results).map((r) => r[0].transcript).join(" ").trim(); callbacks.current.onText(text.current); };
@@ -130,5 +130,5 @@ export default function useVoiceInput(options: { busy: boolean; onText: (t: stri
   }, [workerStt, transcribing, stopSpeak, setMood, cleanup, stop]);
 
   useEffect(() => () => { token.current++; request.current?.abort(); recognition.current?.abort(); if (recorder.current?.state === "recording") recorder.current.stop(); cleanup(); }, [cleanup]);
-  return { listening, transcribing, supported, levels, start, stop, cancel, source: workerStt ? "Voice Worker · tiếng Việt" : "Dự phòng: Web Speech của trình duyệt" };
+  return { listening, transcribing, supported, levels, start, stop, cancel, source: workerStt ? "Nhận dạng giọng nói trên máy chủ · tiếng Việt" : "Dự phòng: nhận dạng của trình duyệt" };
 }

@@ -6,7 +6,7 @@ type Ctx = {
   mood: RobotMood; setMood: (m: RobotMood) => void;
   voiceOut: VoiceOut; setVoiceOut: (v: VoiceOut) => void; rate: number; setRate: (n: number) => void;
   speak: (text: string) => void; stopSpeak: () => void; speaking: boolean; hasViVoice: boolean;
-  voiceNotice: string | null; workerTts: boolean;
+  voiceNotice: string | null; workerTts: boolean; role: string;
 };
 const AppCtx = createContext<Ctx | null>(null);
 export function AppStateProvider({ children }: { children: ReactNode }) {
@@ -16,6 +16,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [speaking, setSpeaking] = useState(false);
   const [hasViVoice, setHasViVoice] = useState(false);
   const [workerTts, setWorkerTts] = useState(false);
+  const [role, setRole] = useState("viewer");
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const generation = useRef(0);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -31,7 +32,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     if (!navigator.onLine) off();
     const voices = () => setHasViVoice("speechSynthesis" in window && speechSynthesis.getVoices().some((v) => v.lang.toLowerCase().startsWith("vi")));
     voices(); if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", voices);
-    const config = () => fetch("/api/settings", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((s) => { if (s) setWorkerTts(!!s.capabilities?.voiceTts); }).catch(() => {});
+    const config = () => fetch("/api/settings", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((s) => { if (s) { setWorkerTts(!!s.capabilities?.voiceTts); setRole(["owner", "operator", "viewer"].includes(s.role) ? s.role : "viewer"); } }).catch(() => {});
     config(); window.addEventListener("dai:config", config);
     return () => { window.removeEventListener("offline", off); window.removeEventListener("online", on); window.removeEventListener("dai:config", config); if ("speechSynthesis" in window) speechSynthesis.removeEventListener("voiceschanged", voices); };
   }, []);
@@ -66,29 +67,29 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       utterance.onend = utterance.onerror = () => { if (generation.current === own) { setSpeaking(false); setMoodState("idle"); } };
       speechSynthesis.speak(utterance);
     };
-    if (!workerTts) { fallback("Voice Worker chưa cấu hình · dùng giọng đọc của thiết bị này."); return; }
+    if (!workerTts) { fallback("Giọng đọc AI chưa cấu hình · dùng giọng đọc của thiết bị này."); return; }
     request.current = new AbortController();
     const signal = request.current.signal;
     setMoodState("thinking");
     void (async () => {
       try {
         const res = await fetch("/api/voice/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: text.slice(0, 2000), rate }), signal });
-        if (!res.ok) throw new Error("Voice Worker unavailable");
+        if (!res.ok) throw new Error("Dịch vụ giọng đọc không khả dụng");
         const blob = await res.blob();
         if (signal.aborted || generation.current !== own) return;
         if (blob.size > 12 * 1024 * 1024) throw new Error("Audio too large");
         const url = URL.createObjectURL(blob); audioUrl.current = url;
         const player = new Audio(url); audio.current = player;
         player.onended = () => { if (generation.current === own) { setSpeaking(false); setMoodState("idle"); URL.revokeObjectURL(url); audioUrl.current = null; } };
-        player.onerror = () => fallback("Không phát được audio từ worker · chuyển sang giọng thiết bị.");
+        player.onerror = () => fallback("Không phát được âm thanh AI · chuyển sang giọng thiết bị.");
         await player.play();
         if (generation.current !== own) { player.pause(); return; }
         setVoiceNotice("Âm thanh do AI tạo · chỉ phát trên thiết bị đang hỏi."); setSpeaking(true); setMoodState("speaking");
-      } catch { if (!signal.aborted && generation.current === own) fallback("Voice Worker không khả dụng · chuyển sang giọng thiết bị, không phát sang máy khác."); }
+      } catch { if (!signal.aborted && generation.current === own) fallback("Dịch vụ giọng đọc không khả dụng · chuyển sang giọng thiết bị, không phát sang máy khác."); }
     })();
   }, [voiceOut, rate, workerTts, stopSpeak]);
   useEffect(() => () => { generation.current++; request.current?.abort(); audio.current?.pause(); if (audioUrl.current) URL.revokeObjectURL(audioUrl.current); if (moodTimer.current) clearTimeout(moodTimer.current); }, []);
-  const value = useMemo(() => ({ mood, setMood, voiceOut, setVoiceOut, rate, setRate, speak, stopSpeak, speaking, hasViVoice, voiceNotice, workerTts }), [mood, setMood, voiceOut, setVoiceOut, rate, setRate, speak, stopSpeak, speaking, hasViVoice, voiceNotice, workerTts]);
+  const value = useMemo(() => ({ mood, setMood, voiceOut, setVoiceOut, rate, setRate, speak, stopSpeak, speaking, hasViVoice, voiceNotice, workerTts, role }), [mood, setMood, voiceOut, setVoiceOut, rate, setRate, speak, stopSpeak, speaking, hasViVoice, voiceNotice, workerTts, role]);
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }
 export function useApp() { const ctx = useContext(AppCtx); if (!ctx) throw new Error("useApp outside provider"); return ctx; }

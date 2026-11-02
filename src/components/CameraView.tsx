@@ -270,7 +270,7 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
             } catch (error) {
               if (!stop) {
                 setModelState("error"); setDetect(false); setBoxes([]);
-                flash(error instanceof Error ? error.message : "Vision Worker không khả dụng. Camera vẫn xem/chụp được.");
+                flash(error instanceof Error ? error.message : "Nhận diện hình ảnh không khả dụng. Camera vẫn xem/chụp được.");
               }
               return;
             }
@@ -282,7 +282,7 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
       .catch(() => {
         setModelState("error");
         setDetect(false);
-        flash("Không kết nối được Vision Worker. Kiểm tra trang Điều phối AI.");
+        flash("Không kết nối được nhận diện hình ảnh. Hãy thử lại sau.");
       });
     return () => {
       stop = true;
@@ -419,7 +419,7 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
         </div>
         {detect && (
           <div className="absolute right-3 top-3 rounded-lg bg-black/60 px-2 py-1 text-xs backdrop-blur">
-            {modelState === "loading" ? <span className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Đang kết nối Vision Worker…</span> : <>Đang thấy: <b className="text-emerald-300">{people}</b> người · {boxes.length} đối tượng</>}
+            {modelState === "loading" ? <span className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Đang kết nối nhận diện hình ảnh…</span> : <>Đang thấy: <b className="text-emerald-300">{people}</b> người · {boxes.length} đối tượng</>}
           </div>
         )}
         {now && <div className="absolute bottom-3 left-3 rounded-lg bg-black/60 px-2.5 py-1 font-mono text-sm backdrop-blur">{now.toLocaleTimeString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })} – {now.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}</div>}

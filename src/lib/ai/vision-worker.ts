@@ -43,7 +43,7 @@ function probability(v: unknown) { return typeof v === "number" && Number.isFini
 
 export function normalizeExtraction(raw: Record<string, unknown>, engine: string): ExtractionResult {
   if (typeof raw.summary !== "string" || !Array.isArray(raw.objects) || typeof raw.ocrText !== "string" || !Array.isArray(raw.structured))
-    throw new AiError("INVALID_EXTRACTION", "Worker không trả đầy đủ trường kết quả trích xuất.");
+    throw new AiError("INVALID_EXTRACTION", "Xử lý AI không trả đầy đủ trường kết quả trích xuất.");
   const objects: ExtractionResult["objects"] = raw.objects.slice(0, 100).map((value) => {
     if (!value || typeof value !== "object") throw new AiError("INVALID_EXTRACTION", "Dữ liệu đối tượng không hợp lệ.");
     const o = value as Record<string, unknown>;
@@ -51,7 +51,7 @@ export function normalizeExtraction(raw: Record<string, unknown>, engine: string
       throw new AiError("INVALID_EXTRACTION", "Nhãn/số lượng phải là dữ liệu quan sát hợp lệ; không suy ra 0 khi chưa biết.");
     const boxes = Array.isArray(o.boxes) ? o.boxes.slice(0, 100).map((b: unknown) => {
       if (!Array.isArray(b) || b.length !== 4 || b.some((n) => typeof n !== "number" || !Number.isFinite(n) || n < 0 || n > 1) || b[0] + b[2] > 1.001 || b[1] + b[3] > 1.001)
-        throw new AiError("INVALID_BOX", "Worker trả tọa độ ngoài vùng ảnh.");
+        throw new AiError("INVALID_BOX", "Xử lý AI trả tọa độ ngoài vùng ảnh.");
       return b as number[];
     }) : undefined;
     return { label: o.label.slice(0, 100), count: o.count, confidence: probability(o.confidence), boxes };
@@ -61,12 +61,12 @@ export function normalizeExtraction(raw: Record<string, unknown>, engine: string
     const v = value as Record<string, unknown>;
     // unknown stays absent, never converted into a fabricated zero.
     if (typeof v.key !== "string" || v.value == null) return [];
-    if (typeof v.value !== "string" && typeof v.value !== "number") throw new AiError("INVALID_FIELD", "Worker trả trường dữ liệu không hợp lệ.");
+    if (typeof v.value !== "string" && typeof v.value !== "number") throw new AiError("INVALID_FIELD", "Xử lý AI trả trường dữ liệu không hợp lệ.");
     return [{ key: v.key.slice(0, 100), value: String(v.value).slice(0, 4000), confidence: probability(v.confidence) }];
   });
   return { summary: raw.summary.slice(0, 4000), details: strings(raw.details), objects,
     ocrText: raw.ocrText.slice(0, 40000), structured, confidence: probability(raw.confidence),
-    warnings: [...strings(raw.warnings), "Kết quả do AI Worker đề xuất; cần người dùng xác nhận trước khi dùng làm số liệu đã xác minh."], engine: [engine] };
+    warnings: [...strings(raw.warnings), "Kết quả do xử lý AI đề xuất; cần người dùng xác nhận trước khi dùng làm số liệu đã xác minh."], engine: [engine] };
 }
 
 export async function imageWorker(service: "vision" | "ocr", input: JobInput, jobId: string, signal: AbortSignal, image?: { dataUrl: string }, session?: SessionPayload) {
@@ -81,11 +81,11 @@ export async function imageWorker(service: "vision" | "ocr", input: JobInput, jo
     ].join("\n") },
     { role: "user", content: [{ type: "text", text: JSON.stringify({ request: input.note, taskType: input.taskType }) }, { type: "image_url", image_url: { url: source.dataUrl } }] },
   ], `${jobId}:${service}`, { signal, allowRemote: input.allowRemote });
-  return normalizeExtraction(parseObject(text), `${service === "vision" ? "Vision" : "OCR"} Worker (server)`);
+  return normalizeExtraction(parseObject(text), `${service === "vision" ? "Nhận diện hình ảnh" : "Nhận dạng văn bản"} (máy chủ)`);
 }
 
 export function mergeImageResults(vision?: ExtractionResult, ocr?: ExtractionResult): ExtractionResult {
-  if (!vision && !ocr) throw new AiError("NO_WORKER_RESULT", "Không có worker xử lý ảnh thành công. Ghi chú và ảnh gốc vẫn được giữ.");
+  if (!vision && !ocr) throw new AiError("NO_WORKER_RESULT", "Không có xử lý AI nào hoàn tất. Ghi chú và ảnh gốc vẫn được giữ.");
   const base = vision ?? ocr!;
   return { ...base,
     summary: [vision?.summary, ocr?.summary].filter(Boolean).join(" "),

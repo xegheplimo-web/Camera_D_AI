@@ -88,7 +88,7 @@ export default function HomePage() {
         </div>
         <div className="relative mt-3 flex flex-wrap gap-2 text-[11px]">
           <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-emerald-300">● {d?.cameras.filter((c) => c.status === "online").length ?? 0}/{d?.cameras.length ?? 0} camera online</span>
-          <span className="rounded-full bg-cyan-500/15 px-2 py-1 text-cyan-300">AI Workers qua Gateway</span>
+          <span className="rounded-full bg-cyan-500/15 px-2 py-1 text-cyan-300">Xử lý AI trên máy chủ</span>
           <span className="rounded-full bg-violet-500/15 px-2 py-1 text-violet-300">Giọng nói: phát trên máy này</span>
         </div>
       </section>

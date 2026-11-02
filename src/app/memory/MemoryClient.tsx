@@ -118,7 +118,7 @@ export default function MemoryClient() {
       if (response.job) {
         const result = await waitForJob<unknown, { answer: AnswerPayload }>(response.job.id, setSmartJob, controller.signal);
         if (result.assistant) setSmartAns(result.assistant.answer);
-        else setSmartError(result.job.error ?? "Chưa có kết quả. Mở Điều phối AI để kiểm tra tác vụ.");
+        else setSmartError(result.job.error ?? "Chưa có kết quả. Hãy thử lại sau.");
       } else if (response.assistant) setSmartAns(response.assistant.answer);
     } catch (e) {
       if (!controller.signal.aborted) setSmartError(e instanceof Error ? e.message : "Không gửi được yêu cầu tìm kiếm");
@@ -158,7 +158,7 @@ export default function MemoryClient() {
           <button onClick={() => setSmartAns(null)} className="absolute right-3 top-3 text-slate-400 hover:text-white" aria-label="Đóng"><X className="h-4 w-4" /></button>
           <div className="mb-1 flex items-center gap-2 text-xs text-cyan-300"><Sparkles className="h-3.5 w-3.5" /> D-AI Bot</div>
           <p className="font-semibold">{smartAns.short}</p>
-          {smartAns.execution?.path === "fallback" && <Badge color="amber">Gateway dự phòng · chỉ tổng hợp dữ liệu đã lưu</Badge>}
+          {smartAns.execution?.path === "fallback" && <Badge color="amber">Dịch vụ AI dự phòng · chỉ tổng hợp dữ liệu đã lưu</Badge>}
           {smartAns.warnings.some((w) => /demo|dữ liệu mẫu/i.test(w)) && <div className="mt-1 text-xs text-amber-200">{smartAns.warnings.find((w) => /demo|dữ liệu mẫu/i.test(w))}</div>}
           {smartAns.details.length > 0 && <ul className="mt-1 text-sm text-slate-300">{smartAns.details.slice(0, 5).map((d, i) => <li key={i}>• {d}</li>)}</ul>}
           {smartAns.evidence.length > 0 && (
