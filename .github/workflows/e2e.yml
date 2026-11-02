@@ -13,18 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
-      AUTH_SECRET: 2676c174d4069301370e3593c0eb8546ea1b05bb6e63c223e9b7261c07aa52d4b13a41c3f8e299878e419b97d11fc8ef
-      ADMIN_PASSWORD: ci-owner-passw0rd
-      OPERATOR_PASSWORD: ci-operator-passwd
-      VIEWER_PASSWORD: ci-viewer-passwd
-      CAMERA_CREDENTIAL_KEY: fe880598fd8d4cd9000b337f89d26ff2f796134037f14043848433adcf9a4ff4
       GO2RTC_HOST: "127.0.0.1"
     services:
       postgres:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: postgres # ephemeral CI database only
           POSTGRES_DB: app_db
         ports:
           - 5432:5432
@@ -39,6 +34,13 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - name: Generate ephemeral CI credentials
+        run: |
+          echo "AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "CAMERA_CREDENTIAL_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "ADMIN_PASSWORD=ci-$(openssl rand -hex 8)" >> "$GITHUB_ENV"
+          echo "OPERATOR_PASSWORD=ci-$(openssl rand -hex 8)" >> "$GITHUB_ENV"
+          echo "VIEWER_PASSWORD=ci-$(openssl rand -hex 8)" >> "$GITHUB_ENV"
       - name: Install dependencies
         run: npm ci
       - name: Push DB schema

@@ -1,0 +1,10 @@
+# T-1303: CI-only ephemeral credentials removed from workflows.
+# These findings live in unreachable-to-fix history (commits on main before the
+# fix); values were never production secrets, so they are accepted, not rotated.
+# Format: <commit>:<file>:<rule>:<line>
+71c942dc22a17e843f91e1bf6634ce7a5c19c06a:.github/workflows/ci.yml:generic-api-key:41
+71c942dc22a17e843f91e1bf6634ce7a5c19c06a:.github/workflows/ci.yml:generic-api-key:42
+71c942dc22a17e843f91e1bf6634ce7a5c19c06a:.github/workflows/ci.yml:generic-api-key:45
+2d502569421129c11837a88fd5b75296d4ef6823:.github/workflows/e2e.yml:generic-api-key:16
+2d502569421129c11837a88fd5b75296d4ef6823:.github/workflows/e2e.yml:generic-api-key:17
+2d502569421129c11837a88fd5b75296d4ef6823:.github/workflows/e2e.yml:generic-api-key:20
