@@ -53,15 +53,97 @@ function gateway(): string {
 export async function ensureGo2rtcStream(streamName: string, source: string): Promise<void> {
   if (!/^dai_cam_[0-9]+$/.test(streamName)) throw new Error("Tên stream không hợp lệ");
   validateCameraUrl(source);
-  const q = new URLSearchParams({ name: streamName, src: source });
+  const q = new URLSearchParams({ name: streamName });
+  q.append("src", source);
+  // go2rtc không tự transcode: /api/stream.mjpeg cần producer xuất JPEG, nên đăng ký
+  // thêm nhánh ffmpeg đọc chính stream này (một kết nối RTSP tới camera, fan-out tại chỗ).
+  q.append("src", `ffmpeg:${streamName}#video=mjpeg`);
   const abort = AbortSignal.timeout(5000);
   const res = await fetch(`${gateway()}/api/streams?${q}`, { method: "PUT", signal: abort, cache: "no-store" });
   if (!res.ok) throw new Error(`go2rtc từ chối kết nối (${res.status})`);
 }
 
+function streamTimeout(env: string | undefined, fallback: number, min: number): number {
+  const parsed = Number(env);
+  return Number.isFinite(parsed) && parsed >= min ? parsed : fallback;
+}
+
 export async function getMjpegStream(streamName: string): Promise<Response> {
   if (!/^dai_cam_[0-9]+$/.test(streamName)) throw new Error("Tên stream không hợp lệ");
-  return fetch(`${gateway()}/api/stream.mjpeg?${new URLSearchParams({ src: streamName })}`, {
-    signal: AbortSignal.timeout(30_000), cache: "no-store",
+  const connectMs = streamTimeout(process.env.GO2RTC_STREAM_CONNECT_MS, 10_000, 500);
+  const idleMs = streamTimeout(process.env.GO2RTC_STREAM_IDLE_MS, 15_000, 1_000);
+  const abort = new AbortController();
+  // Timeout chỉ bọc phần thiết lập (tới khi có response headers); luồng sống không
+  // bị cắt theo đồng hồ — nó chỉ chết khi upstream im quá idleMs hoặc client ngắt.
+  const connectTimer = setTimeout(() => abort.abort(new Error(`go2rtc không phản hồi trong ${connectMs}ms`)), connectMs);
+  const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  const startMs = Date.now();
+  let upstream!: Response;
+  try {
+    for (;;) {
+      upstream = await fetch(`${gateway()}/api/stream.mjpeg?${new URLSearchParams({ src: streamName })}`, {
+        signal: abort.signal, cache: "no-store",
+      });
+      if ((upstream.status === 502 || upstream.status === 503) && Date.now() - startMs < connectMs) {
+        // Producer go2rtc đang cold-boot (đi disconnect dài / nguồn vừa quay lại):
+        // nhả body lỗi và retry trong budget connect; nguồn chết thật vẫn 502/503 fail-closed sau budget.
+        await upstream.body?.cancel();
+        await wait(1000);
+        continue;
+      }
+      break;
+    }
+  } finally {
+    clearTimeout(connectTimer);
+  }
+  if (!upstream.ok || !upstream.body) return upstream;
+
+  const reader = upstream.body.getReader();
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let abandonTimer: ReturnType<typeof setTimeout> | null = null;
+  const abandonMs = Math.max(idleMs * 4, 60_000);
+  const clearIdle = () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } };
+  const stopAll = (reason: string) => {
+    clearIdle();
+    if (abandonTimer) { clearTimeout(abandonTimer); abandonTimer = null; }
+    if (!abort.signal.aborted) abort.abort(new Error(reason));
+  };
+  // Watchdog chỉ canh lúc đang chờ chunk từ upstream — nguồn chết thì go2rtc giữ
+  // socket mở nhưng im lặng mãi; backpressure phía dưới không được tính là stall.
+  const armIdle = () => {
+    clearIdle();
+    idleTimer = setTimeout(() => stopAll(`go2rtc stream im lặng quá ${idleMs}ms`), idleMs);
+  };
+  // Nếu phía dưới ngừng hút dữ liệu mà không cancel (framework bỏ sót khi client
+  // rớt), dọn upstream sau abandonMs thay vì giữ process ffmpeg mồ côi vô hạn.
+  const armAbandon = () => {
+    if (abandonTimer) clearTimeout(abandonTimer);
+    abandonTimer = setTimeout(() => stopAll("consumer của stream bị bỏ lại"), abandonMs);
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      armIdle();
+      try {
+        const { done, value } = await reader.read();
+        clearIdle();
+        if (controller.desiredSize === null) return; // cancel() thắng race với pull đang chờ
+        if (done) {
+          if (abandonTimer) { clearTimeout(abandonTimer); abandonTimer = null; }
+          controller.close();
+        } else {
+          controller.enqueue(value);
+          armAbandon();
+        }
+      } catch (error) {
+        clearIdle();
+        if (abandonTimer) { clearTimeout(abandonTimer); abandonTimer = null; }
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      stopAll(reason instanceof Error ? reason.message : "client ngắt kết nối");
+      try { await reader.cancel(reason); } catch { /* upstream đã tự đóng */ }
+    },
   });
+  return new Response(body, { status: upstream.status, statusText: upstream.statusText, headers: upstream.headers });
 }
