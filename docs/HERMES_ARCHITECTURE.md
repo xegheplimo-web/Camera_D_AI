@@ -100,6 +100,8 @@ Xem `.env.example`. Tất cả endpoint/key đọc server-side; không dùng `NE
 
 `AUTH_SECRET` không còn fallback hardcoded; cần 32+ ký tự. Sandbox được cấp một giá trị ngẫu nhiên trong `.env`, không in ra log. Mật khẩu demo chỉ dành preview. `ADMIN_PASSWORD`/`OPERATOR_PASSWORD`/`VIEWER_PASSWORD` chỉ có hiệu lực ở lần seed đầu; tài khoản đã tồn tại dùng `scripts/set-password.ts` (qua biến môi trường, không in mật khẩu), sau đó mọi phiên cũ của tài khoản bị thu hồi.
 
+Đăng nhập Google (OAuth 2.0 authorization-code, server-side, không dùng NextAuth): `GET /api/auth/google` đặt `state` cookie HttpOnly/SameSite=Lax rồi redirect sang `accounts.google.com/o/oauth2/v2/auth`; `GET /api/auth/google/callback` kiểm `state`, đổi `code` qua `oauth2.googleapis.com/token` và đọc `openidconnect.googleapis.com/v1/userinfo`. Chỉ email có `email_verified` khớp `users.login` (chữ thường) của tài khoản **đã tồn tại và không bị khóa** mới được cấp phiên — không khớp thì redirect `/login?google=denied`, không tự tạo user (fail-closed). `users.google_sub` (UNIQUE, NULL) được liên kết ở lần đăng nhập đầu; phiên phát hành qua cùng `issueSession`/`sessionCookie` với đăng nhập mật khẩu. Cấu hình qua `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK`.
+
 ## Nguồn chính thức
 
 - https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server

@@ -2,7 +2,7 @@ import { cookies, headers } from "next/headers";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { sessions, users } from "@/db/schema";
-import { COOKIE_NAME, ROLES, can, verifyToken, type Role, type SessionPayload } from "./token";
+import { COOKIE_NAME, ROLES, SESSION_TTL_SECONDS, can, signToken, verifyToken, type Role, type SessionPayload } from "./token";
 
 export type Authorized = { session: SessionPayload; response?: undefined } | { session?: undefined; response: Response };
 
@@ -32,4 +32,15 @@ export async function requestMeta() {
   const device = /Android/i.test(ua) ? "android" : /iPhone|iPad/i.test(ua) ? "ios" : /Windows/i.test(ua) ? "windows" : /Macintosh/i.test(ua) ? "macos" : "web";
   const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? h.get("x-real-ip") ?? "local";
   return { ua, device, ip };
+}
+/** Shared session issuance for password and Google OAuth sign-in. */
+export async function issueSession(user: { id: number; displayName: string; role: string }, meta: { device: string; ua: string; ip: string }): Promise<string> {
+  const sid = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
+  await db.insert(sessions).values({ id: sid, userId: user.id, device: meta.device, userAgent: meta.ua, ip: meta.ip, expiresAt });
+  return signToken({ sid, sub: user.id, name: user.displayName, role: normalizeRole(user.role), device: meta.device, exp: Math.floor(expiresAt.getTime() / 1000) });
+}
+export function sessionCookie(token: string): string {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}${secure}`;
 }
