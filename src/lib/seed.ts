@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { cameras, assets, events, extractions, users, alertRules, appSettings } from "@/db/schema";
-import { sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { startOfDayVN, addDays } from "./time";
 import { scryptSync, randomBytes } from "crypto";
 
@@ -56,13 +56,6 @@ export function demoSeedEnabled() {
   return process.env.CAMDAI_DEMO_SEED === "1";
 }
 
-let seeding: Promise<void> | null = null;
-
-export async function reseed() {
-  seeding = null;
-  await ensureSeed();
-}
-
 const CAMS = [
   { code: "CAM-01", name: "Camera 01", location: "Cửa ra vào", sourceType: "webcam", thumbnail: "/cams/cam1.jpg" },
   { code: "CAM-02", name: "Camera 02", location: "Sân / Bãi xe", sourceType: "demo", thumbnail: "/cams/cam2.jpg" },
@@ -78,15 +71,63 @@ function rng(seed: number) {
   };
 }
 
-export async function ensureSeed() {
+/**
+ * T-1305b: marker bền "đã seed demo" trong app_settings (key-value có sẵn, không đổi schema).
+ * ensureSeed chỉ bỏ qua phần demo khi marker đã có; reset_all xoá marker (qua reseed)
+ * để seed lại được khi flag còn bật. Flag tắt → không seed, không ghi marker.
+ */
+export const DEMO_SEEDED_KEY = "demoSeeded";
+
+type DbExecutor = Pick<typeof db, "select" | "insert" | "update" | "delete" | "execute">;
+
+const DEMO_CAM_CODES = CAMS.map((c) => c.code);
+
+/**
+ * Dấu hiệu "demo đã seed": marker bền, hoặc topology demo còn sót (camera code
+ * CAM-01..04 cố định của seed, event source='demo'). DB nâng cấp từ trước T-1305b
+ * có topology demo nhưng chưa có marker → vẫn nhận ra, không seed trùng.
+ * Camera mô phỏng user tự thêm (code CAM-<uuid>) và camera thật không phải dấu hiệu.
+ */
+export async function demoAlreadySeeded(executor: DbExecutor = db): Promise<boolean> {
+  const [m] = await executor.select({ key: appSettings.key }).from(appSettings).where(eq(appSettings.key, DEMO_SEEDED_KEY));
+  if (m) return true;
+  const [d] = await executor.select({ c: sql<number>`count(*)::int` }).from(cameras).where(inArray(cameras.code, DEMO_CAM_CODES));
+  if (d.c > 0) return true;
+  const [e] = await executor.select({ c: sql<number>`count(*)::int` }).from(events).where(eq(events.source, "demo"));
+  return e.c > 0;
+}
+
+/** Ghi marker sau khi seed demo thành công; idempotent qua PK app_settings.key. */
+export async function markDemoSeeded(executor: DbExecutor = db) {
+  // Cột jsonb nhận raw param: truyền "1" trần sẽ thành số 1 — serialize trước để lưu đúng chuỗi "1".
+  await executor.insert(appSettings).values({ key: DEMO_SEEDED_KEY, value: JSON.stringify("1") }).onConflictDoNothing({ target: appSettings.key });
+}
+
+let seeding: Promise<boolean> | null = null;
+
+/**
+ * reset_all: quên latch + marker để ensureSeed đánh giá lại từ trạng thái DB hiện tại.
+ * Trả true nếu lần chạy này seed được dữ liệu demo.
+ */
+export async function reseed() {
+  seeding = null;
+  await db.delete(appSettings).where(eq(appSettings.key, DEMO_SEEDED_KEY));
+  return ensureSeed();
+}
+
+/** Trả true nếu lần chạy này seed được topology demo (flag bật + chưa có dấu hiệu demo). */
+export async function ensureSeed(): Promise<boolean> {
   if (seeding) return seeding;
   seeding = (async () => {
     await ensureIdentitySeed();
     await ensureGoogleSeed();
     await ensureSettingsSeed();
-    if (!demoSeedEnabled()) return;
-    const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(cameras);
-    if (c > 0) return;
+    if (!demoSeedEnabled()) return false;
+    if (await demoAlreadySeeded()) {
+      // DB nâng cấp: topology demo có sẵn nhưng thiếu marker → ghi bù để lần sau chỉ tốn 1 lookup.
+      await markDemoSeeded();
+      return false;
+    }
 
     const camRows = await db.insert(cameras).values(CAMS.map((c, i) => ({ ...c, status: i === 0 ? "demo" : "demo" }))).returning();
     await db.insert(alertRules).values([
@@ -205,6 +246,8 @@ export async function ensureSeed() {
         engine: ["human-verified"],
       },
     });
+    await markDemoSeeded();
+    return true;
   })().catch((e) => {
     seeding = null;
     throw e;

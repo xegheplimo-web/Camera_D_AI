@@ -15,6 +15,7 @@ type Admin = {
   liveEvents: number;
   demo: { events: number; extractions: number; assets: number };
   storageBytes: number;
+  demoSeedEnabled: boolean;
   visionCloud: boolean;
   sessions: { id: string; user: string | null; role: string | null; device: string; createdAt: string; lastSeenAt: string; revokedAt: string | null }[];
   me: { name: string; role: string };
@@ -46,14 +47,17 @@ export default function SettingsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const patchSettings = async (patch: Partial<Settings>) => {
+  // T-1305b: trả kết quả để caller biết PATCH thành công hay không (purge chỉ báo "đã tắt" khi cả 2 bước OK).
+  const patchSettings = async (patch: Partial<Settings>): Promise<boolean> => {
     setErr(null);
     try {
       const r = await api<{ settings: Settings }>("/api/settings", { method: "PATCH", json: patch });
       setSettings(r.settings);
       setMsg("Đã lưu cài đặt.");
+      return true;
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Không lưu được");
+      return false;
     }
   };
 
@@ -107,7 +111,7 @@ export default function SettingsPage() {
       setDemoConfirm(true);
       return;
     }
-    patchSettings({ demoMode: next });
+    void patchSettings({ demoMode: next });
   };
 
   const confirmDisableKeep = async () => {
@@ -127,8 +131,11 @@ export default function SettingsPage() {
       });
       localStorage.setItem("dai_demo_off_confirmed", "1");
       setDemoConfirm(false);
-      await patchSettings({ demoMode: false });
-      setMsg(`Đã xoá ${r.events ?? 0} sự kiện, ${r.extractions ?? 0} trích xuất, ${r.assets ?? 0} ảnh mẫu (${((r.bytes ?? 0) / 1024 / 1024).toFixed(1)} MB) và tắt dữ liệu mẫu. Nhật ký đã ghi lại.`);
+      if (await patchSettings({ demoMode: false })) {
+        setMsg(`Đã xoá ${r.events ?? 0} sự kiện, ${r.extractions ?? 0} trích xuất, ${r.assets ?? 0} ảnh mẫu (${((r.bytes ?? 0) / 1024 / 1024).toFixed(1)} MB) và tắt dữ liệu mẫu. Nhật ký đã ghi lại.`);
+      } else {
+        setErr("Đã xoá dữ liệu mẫu nhưng chưa tắt được chế độ mẫu — thử lại.");
+      }
       load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Không xoá được dữ liệu mẫu");
@@ -141,10 +148,14 @@ export default function SettingsPage() {
     if (phrase !== "XOA DU LIEU") return setErr("Nhập đúng cụm “XOA DU LIEU” để xác nhận.");
     if (!confirm(`${label}? Hành động không thể hoàn tác.${extra}`)) return;
     try {
-      const r = await api<{ ok: boolean; events?: number; extractions?: number; assets?: number; bytes?: number }>("/api/admin", { method: "POST", json: { action, confirmPhrase: phrase, deviceId: getDeviceId() } });
+      const r = await api<{ ok: boolean; events?: number; extractions?: number; assets?: number; bytes?: number; demoReseeded?: boolean }>("/api/admin", { method: "POST", json: { action, confirmPhrase: phrase, deviceId: getDeviceId() } });
       setMsg(action === "purge_demo"
         ? `Đã xoá ${r.events ?? 0} sự kiện, ${r.extractions ?? 0} trích xuất, ${r.assets ?? 0} ảnh mẫu (${((r.bytes ?? 0) / 1024 / 1024).toFixed(1)} MB). Nhật ký đã ghi lại.`
-        : "Đã thực hiện. Nhật ký đã ghi lại thao tác.");
+        : action === "reset_all"
+          ? r.demoReseeded
+            ? "Đã đặt lại và tạo dữ liệu mẫu. Nhật ký đã ghi lại."
+            : "Đã đặt lại. Hệ thống trống — thêm camera thật hoặc bật CAMDAI_DEMO_SEED để có dữ liệu mẫu."
+          : "Đã thực hiện. Nhật ký đã ghi lại thao tác.");
       setPhrase("");
       load();
     } catch (e) {
@@ -349,7 +360,7 @@ export default function SettingsPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => adminAction("purge_demo", "Xóa toàn bộ dữ liệu mẫu", `\nSẽ xoá ${admin?.demo?.events ?? "?"} sự kiện + ${admin?.demo?.extractions ?? "?"} trích xuất + ${admin?.demo?.assets ?? "?"} ảnh mẫu.`)} disabled={phrase !== "XOA DU LIEU"} className="btn btn-ghost"><Trash2 className="h-4 w-4" /> Xoá dữ liệu mẫu</button>
-                <button onClick={() => adminAction("reset_all", "XÓA TẤT CẢ dữ liệu và tạo lại mẫu")} disabled={phrase !== "XOA DU LIEU"} className="btn btn-danger"><Trash2 className="h-4 w-4" /> Đặt lại toàn bộ</button>
+                <button onClick={() => adminAction("reset_all", admin?.demoSeedEnabled ? "XÓA TẤT CẢ dữ liệu và tạo lại dữ liệu mẫu" : "XÓA TẤT CẢ dữ liệu — hệ thống sẽ trống, KHÔNG tạo lại dữ liệu mẫu")} disabled={phrase !== "XOA DU LIEU"} className="btn btn-danger"><Trash2 className="h-4 w-4" /> Đặt lại toàn bộ</button>
               </div>
             </div>
           )}

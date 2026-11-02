@@ -11,6 +11,7 @@
     "test:ai": "node --import tsx --test tests/ai-unit.test.ts tests/ai-integration.test.ts tests/detector.test.ts",
     "test:scope": "node --import tsx --test tests/scope-rbac.test.ts",
     "test:retention": "node --import tsx --test tests/retention.test.ts",
+    "test:seed": "node --import tsx --test tests/seed-marker.test.ts",
     "test:google": "node --import tsx --test tests/google-auth.unit.test.ts",
     "db:push:dev": "drizzle-kit push"
   },
