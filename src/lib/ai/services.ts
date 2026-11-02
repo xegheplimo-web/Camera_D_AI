@@ -48,6 +48,10 @@ export async function markService(name: ServiceName, ok: boolean, latencyMs: num
   } });
 }
 
+export function resolveAiTimeout(envValue?: string): number {
+  return Math.min(60000, Math.max(1000, Number(envValue) || 15000));
+}
+
 /** Caller cancellation + bounded upstream request. Never redirects Bearer credentials. */
 export async function serviceFetch(name: ServiceName, path: string, init: RequestInit = {}, options: { signal?: AbortSignal; allowRemote?: boolean; probe?: boolean } = {}) {
   const c = serviceConfig(name);
@@ -59,7 +63,7 @@ export async function serviceFetch(name: ServiceName, path: string, init: Reques
   const [state] = await db.select().from(aiServices).where(eq(aiServices.name, name)).limit(1);
   if (!options.probe && state?.cooldownUntil && state.cooldownUntil > new Date())
     throw new AiError("CIRCUIT_OPEN", `${SERVICE_LABELS[name]} đang tạm nghỉ 30 giây sau các lỗi kết nối. Dịch vụ AI sẽ dùng phương án dự phòng.`);
-  const timeout = Math.min(20000, Math.max(1000, Number(process.env.DAI_AI_TIMEOUT_MS) || 15000));
+  const timeout = resolveAiTimeout(process.env.DAI_AI_TIMEOUT_MS);
   const signals = [AbortSignal.timeout(options.probe ? Math.min(timeout, 4000) : timeout), ...(options.signal ? [options.signal] : [])];
   const start = Date.now();
   try {
