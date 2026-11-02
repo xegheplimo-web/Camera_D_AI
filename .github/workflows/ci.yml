@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  quality:
+    name: Quality (typecheck + lint) — ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ["22"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+
+  test-e2e:
+    name: Test E2E (Node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
+      AUTH_SECRET: 2676c174d4069301370e3593c0eb8546ea1b05bb6e63c223e9b7261c07aa52d4b13a41c3f8e299878e419b97d11fc8ef
+      ADMIN_PASSWORD: ci-owner-passw0rd
+      OPERATOR_PASSWORD: ci-operator-passwd
+      VIEWER_PASSWORD: ci-viewer-passwd
+      CAMERA_CREDENTIAL_KEY: fe880598fd8d4cd9000b337f89d26ff2f796134037f14043848433adcf9a4ff4
+      GO2RTC_HOST: "127.0.0.1"
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Push DB schema
+        run: npx drizzle-kit push
+      - name: Build (Next.js)
+        run: npm run build
+      - name: Integration + unit tests
+        run: npm run test:ai
+      - name: Camera/product unit tests
+        run: npm run test:camera

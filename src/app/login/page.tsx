@@ -35,12 +35,6 @@ function LoginForm() {
     }
   };
 
-  const fill = (l: string, p: string) => {
-    setLogin(l);
-    setPassword(p);
-    setErr(null);
-  };
-
   return (
     <div className="grid min-h-screen place-items-center px-4 py-10">
       <div className="w-full max-w-4xl overflow-hidden rounded-3xl border border-white/10 bg-[#111d31] shadow-[0_30px_80px_-40px_rgba(0,0,0,1)] md:grid md:grid-cols-2">
@@ -74,24 +68,12 @@ function LoginForm() {
             </button>
           </form>
 
-          <div className="mt-5 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-xs text-amber-100">
-            <p className="font-semibold">Tài khoản demo của môi trường phát triển</p>
-            <p className="mt-1">Mật khẩu lấy từ biến môi trường khi triển khai; nếu chưa đặt, hệ thống dùng giá trị mặc định dưới đây và bạn phải đổi trước khi cho người khác truy cập.</p>
-            <div className="mt-2 grid gap-1">
-              {[
-                ["owner", "CameraDAI!2026", "Chủ hệ thống · toàn quyền"],
-                ["operator", "Operator!2026", "Vận hành · không xóa dữ liệu"],
-                ["viewer", "Viewer!2026", "Chỉ xem và hỏi đáp"],
-              ].map(([l, p, d]) => (
-                <button key={l} type="button" onClick={() => fill(l, p)} className="flex items-center justify-between gap-2 rounded-lg bg-black/25 px-2 py-1.5 text-left hover:bg-black/40">
-                  <span>
-                    <b className="text-white">{l}</b> / <span className="font-mono">{p}</span>
-                    <span className="block text-[10px] text-amber-200/80">{d}</span>
-                  </span>
-                  <span className="text-[10px] text-cyan-300">Điền</span>
-                </button>
-              ))}
-            </div>
+          <div className="mt-5 rounded-xl border border-cyan-400/25 bg-cyan-500/10 p-3 text-xs text-cyan-100">
+            <p className="font-semibold">Tài khoản hệ thống</p>
+            <p className="mt-1">
+              Ba mức tài khoản <b>owner</b> (toàn quyền, bao gồm cả quản trị camera), <b>operator</b> (vận hành, không xóa dữ liệu) và <b>viewer</b> (chỉ xem và hỏi đáp).
+              Mật khẩu bắt buộc được cấu hình qua <span className="font-mono">ADMIN_PASSWORD</span>, <span className="font-mono">OPERATOR_PASSWORD</span>, <span className="font-mono">VIEWER_PASSWORD</span> trong biến môi trường của lần triển khai (mỗi mật khẩu từ 12 ký tự, đôi một khác nhau) — hệ thống <b>không tạo tài khoản với mật khẩu mặc định</b>.
+            </p>
           </div>
         </div>
       </div>

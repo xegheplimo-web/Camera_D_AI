@@ -24,3 +24,8 @@
 15. Model video understanding lớn hơn, phân tích theo yêu cầu, chạy nhiều GPU và autoscale.
 16. iOS/TestFlight, đăng ký thiết bị, dashboard mobile nâng cao.
 17. Kiểm thử pháp lý/licensing khi bán phần mềm và bộ model kết hợp.
+
+## Nợ kỹ thuật ghi nhận (được hạ về cảnh warning trong ESLint)
+
+- 6 quy tắc nghiêm ngặt của `eslint-plugin-react-hooks` v7 (react-compiler lints: `set-state-in-effect`, `purity`, `static-components`, `refs`, `immutability`) đang ở mức **warning** trên `src/**` — codebase dùng pattern data-loading/listener cũ. Khi refactor UI theo chuẩn React Compiler (thuộc vòng P1), bật lại ở mức `error` và xóa dòng cấu hình trong `eslint.config.mjs`.
+- Đã được chỉnh sửa so với nguồn gốc merge: trang đăng nhập loại bỏ box gợi ý mật khẩu demo (`CameraDAI!2026`…) — không còn đúng với hành vi seed (bắt buộc env password) sau khi merge v1.2/v1.3.
