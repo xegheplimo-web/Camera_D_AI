@@ -1,0 +1,32 @@
+# CAM-G2-001 fixture — mediamtx 1.21.x. Chỉ tồn tại bên trong docker-compose.test.yml.
+# Không auth thật: mạng camnet (192.168.99.0/24) là test-only; cổng publish ra host
+# chỉ trên 127.0.0.1.
+logLevel: warn
+logDestinations: [stdout]
+
+# Host scrape tới :9997/:9998 đi qua docker gateway nên source IP không phải 127.0.0.1
+# trong container; cấp api+metrics cho CIDR test để bằng chứng metric đọc được.
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: [192.168.99.0/24]
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+      - action: api
+      - action: metrics
+
+api: yes
+apiAddress: :9997
+metrics: yes
+metricsAddress: :9998
+
+rtsp: true
+rtspTransports: [tcp]
+rtspEncryption: "no"
+rtspAddress: :8554
+
+paths:
+  g2cam: {}

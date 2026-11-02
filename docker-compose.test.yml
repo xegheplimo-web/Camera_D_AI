@@ -1,0 +1,93 @@
+# CAM-G2-001 — RTSP fixture deterministic cho test. KHÔNG dùng trong production.
+#
+#   docker compose -f docker-compose.test.yml -p camg2 up -d --wait
+#   docker compose -f docker-compose.test.yml -p camg2 down -v
+#
+# Pipeline: rtsp-source (ffmpeg loop testsrc2 + bit-sequence overlay, H.264 baseline)
+#   -> mediamtx RTSP (192.168.99.10:8554/g2cam)
+#   -> go2rtc producer (192.168.99.20, API trên 127.0.0.1:1984 loopback-only)
+#   -> Next.js /api/cameras/[id]/stream (MJPEG multipart)
+#
+# CIDR riêng 192.168.99.0/24: validateCameraUrl() chặn loopback cứng nên RTSP test
+# không thể trỏ 127.0.0.1; subnet này chỉ tồn tại bên trong compose project, không
+# chạm mạng LAN thật và không mở thêm allowlist production.
+name: camg2
+
+networks:
+  camnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.99.0/24
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.3
+    networks:
+      camnet:
+        ipv4_address: 192.168.99.10
+    volumes:
+      - ./fixtures/mediamtx.yml:/mediamtx.yml:ro
+    ports:
+      # Control API + Prometheus exporter: loopback-only, chỉ để test scrape evidence.
+      - "127.0.0.1:9997:9997"
+      - "127.0.0.1:9998:9998"
+
+  rtsp-source:
+    image: jrottenberg/ffmpeg:8-alpine
+    networks:
+      camnet:
+        ipv4_address: 192.168.99.11
+    depends_on:
+      - mediamtx
+    # -re = phát realtime như camera thật. testsrc2 đã burn-in timecode sẵn;
+    # geq vẽ thêm 5 ô nhị phân (bit0..bit4 của frame index, ô 24x24 góc trên-trái)
+    # để test đọc lại frame sequence sau khi transcode MJPEG (không dùng byte-hash).
+    # Vòng lặp retry tự lành: mediamtx là distroless (không có healthcheck trong
+    # container), nếu ffmpeg chạy trước khi RTSP server sẵn sàng thì thử lại sau 2s.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        while true; do
+        ffmpeg -hide_banner -nostdin -loglevel warning -stats_period 10 -re
+        -f lavfi -i "testsrc2=size=640x360:rate=10,
+        geq=r='if(between(X,8,31)*between(Y,8,31),255*bitand(N,1),
+        if(between(X,40,63)*between(Y,8,31),255*bitand(floor(N/2),1),
+        if(between(X,72,95)*between(Y,8,31),255*bitand(floor(N/4),1),
+        if(between(X,104,127)*between(Y,8,31),255*bitand(floor(N/8),1),
+        if(between(X,136,159)*between(Y,8,31),255*bitand(floor(N/16),1),p(X,Y))))))':
+        g='if(between(X,8,31)*between(Y,8,31),255*bitand(N,1),
+        if(between(X,40,63)*between(Y,8,31),255*bitand(floor(N/2),1),
+        if(between(X,72,95)*between(Y,8,31),255*bitand(floor(N/4),1),
+        if(between(X,104,127)*between(Y,8,31),255*bitand(floor(N/8),1),
+        if(between(X,136,159)*between(Y,8,31),255*bitand(floor(N/16),1),p(X,Y))))))':
+        b='if(between(X,8,31)*between(Y,8,31),255*bitand(N,1),
+        if(between(X,40,63)*between(Y,8,31),255*bitand(floor(N/2),1),
+        if(between(X,72,95)*between(Y,8,31),255*bitand(floor(N/4),1),
+        if(between(X,104,127)*between(Y,8,31),255*bitand(floor(N/8),1),
+        if(between(X,136,159)*between(Y,8,31),255*bitand(floor(N/16),1),p(X,Y))))))'"
+        -an -c:v libx264 -profile:v baseline -level 3.1 -preset ultrafast -tune zerolatency
+        -g 10 -pix_fmt yuv420p -b:v 700k -maxrate 900k -bufsize 1200k
+        -f rtsp -rtsp_transport tcp rtsp://192.168.99.10:8554/g2cam;
+        sleep 2; done
+    # Test chủ động stop/start service này để mô phỏng mất/khôi phục nguồn RTSP;
+    # unless-stopped giữ trạng thái đã stop (không tự sống lại), vẫn tự khởi động lại khi crash.
+    restart: unless-stopped
+
+  go2rtc:
+    image: alexxit/go2rtc:1.9.15
+    networks:
+      camnet:
+        ipv4_address: 192.168.99.20
+    # Không mount config cố định: go2rtc ghi lại /config/go2rtc.yaml khi PUT
+    # /api/streams đăng ký stream động; mount read-only khiến PUT trả 400.
+    # Default listen api :1984 / rtsp :8554 / webrtc :8555 đủ dùng cho fixture.
+    ports:
+      # App gọi http://127.0.0.1:1984 (GO2RTC_HOST bắt buộc loopback). Chỉ publish loopback.
+      - "127.0.0.1:1984:1984"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:1984/api"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 3s
