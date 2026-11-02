@@ -2,6 +2,7 @@ import { cookies, headers } from "next/headers";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { sessions, users } from "@/db/schema";
+import { clientIp, type HeaderSource } from "./http-guard";
 import { COOKIE_NAME, ROLES, SESSION_TTL_SECONDS, can, signToken, verifyToken, type Role, type SessionPayload } from "./token";
 
 export type Authorized = { session: SessionPayload; response?: undefined } | { session?: undefined; response: Response };
@@ -26,12 +27,16 @@ export async function authorize(action: Parameters<typeof can>[1] = "read"): Pro
   return { session };
 }
 export function normalizeRole(v: unknown): Role { return ROLES.includes(v as Role) ? v as Role : "viewer"; }
-export async function requestMeta() {
-  const h = await headers();
-  const ua = h.get("user-agent") ?? "unknown";
+/**
+ * Request metadata for session issuance/audit. X-Forwarded-For is trusted only
+ * when the direct peer is inside TRUSTED_PROXY_CIDR (see clientIp); without a
+ * resolvable peer the ip falls back to "unknown" — never a client claim.
+ */
+export async function requestMeta(h?: HeaderSource, remoteAddr?: string | null) {
+  const hdrs = h ?? (await headers());
+  const ua = hdrs.get("user-agent") ?? "unknown";
   const device = /Android/i.test(ua) ? "android" : /iPhone|iPad/i.test(ua) ? "ios" : /Windows/i.test(ua) ? "windows" : /Macintosh/i.test(ua) ? "macos" : "web";
-  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? h.get("x-real-ip") ?? "local";
-  return { ua, device, ip };
+  return { ua, device, ip: clientIp(hdrs, remoteAddr) };
 }
 /** Shared session issuance for password and Google OAuth sign-in. */
 export async function issueSession(user: { id: number; displayName: string; role: string }, meta: { device: string; ua: string; ip: string }): Promise<string> {
