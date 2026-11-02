@@ -21,7 +21,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (!cur) throw new AiError("NOT_FOUND", "Không tìm thấy trích xuất.", 404);
       const scoped = await authorizeResource(auth.session, "extraction", cur.id, "write");
       if (!scoped.ok) throw new AiError("NOT_FOUND", "Không tìm thấy trích xuất trong phạm vi được phép.", 404);
-      if (cur.status === "PROCESSING") throw new AiError("STILL_PROCESSING", "Tác vụ còn đang xử lý. Hãy hủy hoặc chờ worker hoàn tất.", 409);
+      if (cur.status === "PROCESSING") throw new AiError("STILL_PROCESSING", "Tác vụ còn đang xử lý. Hãy hủy hoặc chờ xử lý AI hoàn tất.", 409);
       if (body.action === "verify" && !cur.rawResult) throw new AiError("NO_AI_EVIDENCE", "Chưa có kết quả AI để xác minh. Ghi chú nháp không phải bằng chứng trích xuất.", 409);
       const patch: Partial<typeof extractions.$inferInsert> = { updatedAt: new Date(), version: cur.version + 1 };
       if (body.result && typeof body.result === "object" && !Array.isArray(body.result)) {

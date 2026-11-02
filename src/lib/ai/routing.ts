@@ -4,9 +4,9 @@ import { AiError, type JobKind, type Plan, type Roi, type RouteDecision, type To
 export function routeQuestion(question: string): RouteDecision {
   const q = question.toLocaleLowerCase("vi-VN");
   if (/phân tích|bất thường|lập (báo cáo|kế hoạch)|báo cáo (chi tiết|tổng hợp|toàn bộ)|điều tra|nguyên nhân|đối chiếu|phân tích sâu|tóm tắt.*(tuần|tháng|camera)/u.test(q))
-    return { path: "orchestrated", reason: "Yêu cầu phân tích nhiều bước; Hermes chọn công cụ, worker thực hiện." };
+    return { path: "orchestrated", reason: "Yêu cầu phân tích nhiều bước; Trợ lý AI chọn công cụ, xử lý AI thực hiện." };
   if (/bao nhiêu|mấy (giờ|người|khách|xe)|lượt|đầu tiên|gần nhất|cao điểm|^tìm|tìm kiếm|xin chào|^chào|giúp gì|làm được gì|ảnh đã lưu|ghi chú đã lưu|đang có|hiện tại|khi nào/u.test(q))
-    return { path: "fast", reason: "Truy vấn dữ liệu có cấu trúc; Gateway → Memory/SQL, không gọi Hermes." };
+    return { path: "fast", reason: "Truy vấn dữ liệu có cấu trúc; trả lời trực tiếp, không qua Trợ lý AI." };
   return { path: "orchestrated", reason: "Yêu cầu cần diễn giải; kiểm tra bằng chứng trước khi trả lời." };
 }
 
@@ -18,13 +18,13 @@ export function requiredTools(kind: JobKind, note = "", taskType = "freeform"): 
 
 /** Remote plans are data, never executable code / SQL / URLs. Reject unknown tools and arguments. */
 export function validatePlan(value: unknown, kind: JobKind): Plan {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AiError("INVALID_PLAN", "Hermes trả kế hoạch không hợp lệ.");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AiError("INVALID_PLAN", "Trợ lý AI trả kế hoạch không hợp lệ.");
   const p = value as Record<string, unknown>;
   if (Object.keys(p).some((k) => k !== "tools") || !Array.isArray(p.tools) || p.tools.length < 1 || p.tools.length > 4)
-    throw new AiError("INVALID_PLAN", "Kế hoạch Hermes chứa trường hoặc số bước không được phép.");
+    throw new AiError("INVALID_PLAN", "Kế hoạch của Trợ lý AI chứa trường hoặc số bước không được phép.");
   const allowed: ToolName[] = kind === "report" ? ["memory.summary", "memory.events"] : ["vision.extract", "ocr.extract"];
   if (p.tools.some((t) => typeof t !== "string" || !allowed.includes(t as ToolName)))
-    throw new AiError("FORBIDDEN_TOOL", "Gateway từ chối công cụ ngoài danh sách cho phép.");
+    throw new AiError("FORBIDDEN_TOOL", "Dịch vụ AI từ chối công cụ ngoài danh sách cho phép.");
   return { tools: [...new Set(p.tools as ToolName[])], origin: "hermes" };
 }
 
@@ -46,5 +46,5 @@ export function parseObject(text: string): Record<string, unknown> {
     const p: unknown = JSON.parse(cleaned);
     if (p && typeof p === "object" && !Array.isArray(p)) return p as Record<string, unknown>;
   } catch { /* fail closed, never eval */ }
-  throw new AiError("INVALID_RESPONSE", "AI Worker không trả JSON đúng hợp đồng. Kết quả chưa được lưu như dữ liệu xác minh.");
+  throw new AiError("INVALID_RESPONSE", "Xử lý AI không trả JSON đúng hợp đồng. Kết quả chưa được lưu như dữ liệu xác minh.");
 }

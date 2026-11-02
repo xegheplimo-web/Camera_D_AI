@@ -35,8 +35,11 @@ export default function SettingsPage() {
 
   const load = useCallback(() => {
     api<Cam[]>("/api/cameras").then(setCams).catch(() => {});
-    api<{ settings: Settings; role: string }>("/api/settings").then((r) => { setSettings(r.settings); setRole(r.role); }).catch(() => {});
-    api<Admin>("/api/admin").then(setAdmin).catch(() => setAdmin(null));
+    api<{ settings: Settings; role: string }>("/api/settings").then((r) => {
+      setSettings(r.settings); setRole(r.role);
+      if (r.role === "owner" || r.role === "operator") api<Admin>("/api/admin").then(setAdmin).catch(() => setAdmin(null));
+      else setAdmin(null);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -273,10 +276,10 @@ export default function SettingsPage() {
 
         <Card title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-emerald-300" /> AI & hiệu năng</span>}>
           <ul className="space-y-1.5 text-sm text-[#c6d4e6]">
-            <li>• Nhận diện ảnh/khung hình: Vision Worker phía server; lượt đếm do trình duyệt báo được đánh dấu <b>chưa xác minh</b>.</li>
-            <li>• OCR: worker phía server, gọi theo nhu cầu qua Gateway.</li>
+            <li>• Nhận diện ảnh/khung hình: xử lý AI phía máy chủ; lượt đếm do trình duyệt báo được đánh dấu <b>chưa xác minh</b>.</li>
+            <li>• OCR: xử lý phía máy chủ, gọi theo nhu cầu qua dịch vụ AI.</li>
             <li>• Hỏi đáp: phân tích ý định + SQL có kiểm soát; không để mô hình tự bịa số.</li>
-            <li>• Tích hợp VLM cũ: {admin?.visionCloud ? <Badge color="emerald">đã bật (OPENAI_API_KEY)</Badge> : <Badge>tắt (mặc định)</Badge>} — không còn được gọi trực tiếp; dùng cấu hình worker và quyền gửi dữ liệu tại Điều phối AI.</li>
+            <li>• Tích hợp VLM cũ: {admin?.visionCloud ? <Badge color="emerald">đã bật (OPENAI_API_KEY)</Badge> : <Badge>tắt (mặc định)</Badge>} — không còn được gọi trực tiếp; cấu hình và quyền gửi dữ liệu do chủ hệ thống quản lý.</li>
             <li>• Chi phí API: $0 khi không bật VLM đám mây; chưa có bảng ước tính theo lượt.</li>
           </ul>
           <div className="mt-3 grid grid-cols-2 gap-2 text-sm">

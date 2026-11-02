@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useState } from "react";
 import { CheckCircle2, Circle, Loader2, AlertTriangle, XCircle, RotateCcw, X, ExternalLink } from "lucide-react";
 import { api } from "@/lib/client";
+import { useApp } from "./AppState";
 import type { JobState, JobView } from "@/lib/ai/types";
 
 export const JOB_LABELS: Record<JobState, string> = { queued: "Đang chờ", running: "Đang xử lý", succeeded: "Hoàn tất", partial: "Kết quả giới hạn", failed: "Không hoàn tất", cancelled: "Đã hủy" };
-export const ROUTE_LABELS = { hermes: "Hermes điều phối", worker: "Gateway → Worker", fallback: "Gateway dự phòng" };
+export const ROUTE_LABELS = { hermes: "Trợ lý AI", worker: "Xử lý AI trực tiếp", fallback: "Dịch vụ AI dự phòng" };
 
 export default function JobProgress({ job, compact = false, onUpdate, controllable = true }: { job: JobView; compact?: boolean; onUpdate?: (j: JobView) => void; controllable?: boolean }) {
+  const { role } = useApp();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const active = ["queued", "running"].includes(job.state);
@@ -27,7 +29,7 @@ export default function JobProgress({ job, compact = false, onUpdate, controllab
         {active ? <Loader2 className="h-4 w-4 animate-spin text-cyan-300" /> : job.state === "succeeded" ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : <AlertTriangle className="h-4 w-4 text-amber-300" />}
         <b className={job.state === "partial" ? "text-amber-200" : "text-slate-100"}>{JOB_LABELS[job.state]}</b>
         <span className="rounded-md bg-white/5 px-1.5 py-0.5 text-[#a9bad2]">{ROUTE_LABELS[job.route]}</span>
-        <Link href={`/orchestration?job=${job.id}`} className="ml-auto text-[#a9bad2] hover:text-cyan-200" aria-label="Mở chi tiết tác vụ"><ExternalLink className="h-3.5 w-3.5" /></Link>
+        {role === "owner" && <Link href={`/admin?job=${job.id}`} className="ml-auto text-[#a9bad2] hover:text-cyan-200" aria-label="Mở chi tiết tác vụ"><ExternalLink className="h-3.5 w-3.5" /></Link>}
       </div>
       {active && <div className="my-2 h-1 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-400 transition-all" style={{ width: `${Math.max(3, job.progress)}%` }} /></div>}
       {!compact && <p className="my-2 text-sm font-medium text-slate-200">{job.title}</p>}

@@ -39,7 +39,7 @@ export default function VoiceCallDialog() {
     if (!q || !callingRef.current || busy || abortRef.current) return;
     const controller = new AbortController(); abortRef.current = controller;
     setBusy(true); setMood("thinking"); setDraft(""); setLastJob(null);
-    setStatus("Đang hỏi hệ thống trí nhớ / Hermes…");
+    setStatus("Đang hỏi trợ lý AI…");
     setTurns((x) => [...x, { role: "user", content: q }]);
     try {
       const response = await api<ChatResponse>("/api/chat", {
@@ -50,7 +50,7 @@ export default function VoiceCallDialog() {
         setLastJob(response.job);
         const result = await waitForJob<unknown, Reply>(response.job.id, setLastJob, controller.signal);
         reply = result.assistant || undefined;
-        if (!reply) throw new Error(result.job.error || "Tác vụ chưa có kết quả. Hãy xem trang Điều phối AI.");
+        if (!reply) throw new Error(result.job.error || "Tác vụ chưa có kết quả. Hãy thử lại.");
       }
       if (!reply) throw new Error("Không nhận được câu trả lời từ D-AI.");
       if (!callingRef.current || controller.signal.aborted) return;
@@ -61,7 +61,7 @@ export default function VoiceCallDialog() {
       if (voiceOut !== "text") speak(text);
     } catch (e) {
       if (!controller.signal.aborted) {
-        setStatus(e instanceof Error ? e.message : "Không thể kết nối D-AI Gateway.");
+        setStatus(e instanceof Error ? e.message : "Không thể kết nối trợ lý AI.");
         setMood("error");
       }
     } finally {
@@ -110,7 +110,7 @@ export default function VoiceCallDialog() {
       <section role="dialog" aria-modal="true" aria-label="Cuộc gọi giọng nói D-AI" className="glass flex max-h-[95dvh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-cyan-400/25 bg-[#0b162b]">
         <header className="flex items-center gap-3 border-b border-white/10 p-4">
           <Phone className="h-5 w-5 text-emerald-300" />
-          <div className="flex-1"><h2 className="font-bold">Gọi D-AI Bot</h2><p className="text-xs text-slate-400">Hội thoại theo lượt qua Gateway · Hermes khi cần</p></div>
+          <div className="flex-1"><h2 className="font-bold">Gọi D-AI Bot</h2><p className="text-xs text-slate-400">Hội thoại theo lượt với trợ lý AI</p></div>
           <button onClick={close} className="rounded-xl p-2 hover:bg-white/10" aria-label="Đóng cuộc gọi"><X className="h-5 w-5" /></button>
         </header>
         <div className="flex flex-col items-center gap-2 px-4 py-3">

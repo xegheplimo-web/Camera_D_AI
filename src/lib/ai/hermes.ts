@@ -9,7 +9,7 @@ export async function hermesPlan(kind: JobKind, input: JobInput, jobId: string, 
   const discovery = await serviceFetch("hermes", "toolsets", {}, { signal, allowRemote: input.allowRemote });
   const toolsets = await boundedJsonValue(discovery);
   if (!Array.isArray(toolsets) || toolsets.some((s) => !s || typeof s !== "object" || (s.enabled !== false && (!Array.isArray(s.tools) || s.tools.length > 0))))
-    throw new AiError("UNSAFE_HERMES_PROFILE", "Profile Hermes còn công cụ trực tiếp hoặc không xác minh được toolset. Hãy dùng profile planner riêng, không terminal/file/web tools.");
+    throw new AiError("UNSAFE_HERMES_PROFILE", "Trợ lý AI còn công cụ trực tiếp hoặc không xác minh được toolset. Hãy dùng profile planner riêng, không terminal/file/web tools.");
   const allowed = kind === "report" ? ["memory.summary", "memory.events"] : ["vision.extract", "ocr.extract"];
   const content = await completion("hermes", [
     { role: "system", content: [

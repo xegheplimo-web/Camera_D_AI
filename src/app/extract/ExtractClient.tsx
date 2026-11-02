@@ -56,7 +56,7 @@ function download(name: string, content: string, type: string) {
 
 export default function ExtractClient() {
   const params = useSearchParams();
-  const { setMood } = useApp();
+  const { setMood, role } = useApp();
   const [assetId, setAssetId] = useState<number | null>(null);
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
@@ -262,7 +262,7 @@ export default function ExtractClient() {
     try {
       const envelope = await waitForJob<ExRow>(id, (current) => {
         setJob(current);
-        setProgress(current.steps.find((s) => s.state === "running")?.label ?? "Đang chờ AI Worker…");
+        setProgress(current.steps.find((s) => s.state === "running")?.label ?? "Đang chờ xử lý AI…");
       }, controller.signal);
       if (controller.signal.aborted) return;
       const row = envelope.extraction;
@@ -276,7 +276,7 @@ export default function ExtractClient() {
       if (["succeeded", "partial"].includes(envelope.job.state) && row?.result) {
         setResult(row.result); setStatus(row.status === "VERIFIED" ? "VERIFIED" : row.status === "FAILED" ? "FAILED" : "REVIEW_REQUIRED"); setTab("summary"); setErr(row.status === "FAILED" ? "Kết quả này đã bị đánh dấu sai." : null);
       } else {
-        setStatus("FAILED"); setErr(envelope.job.error ?? "Worker chưa hoàn tất. Ảnh và ghi chú đã được giữ lại.");
+        setStatus("FAILED"); setErr(envelope.job.error ?? "Xử lý AI chưa hoàn tất. Ảnh và ghi chú đã được giữ lại.");
       }
       loadHistory();
     } catch (e) {
@@ -290,7 +290,7 @@ export default function ExtractClient() {
     if (!assetId || status === "PROCESSING") return;
     if (!note.trim()) return setErr("Hãy nhập ghi chú yêu cầu bên cạnh ảnh.");
     setErr(null); setResult(null); setStatus("PROCESSING"); setMood("thinking");
-    setProgress("Gateway đang tiếp nhận yêu cầu…");
+    setProgress("Đang tiếp nhận yêu cầu…");
     try {
       const response = await api<{ job: JobView }>("/api/extractions", { method: "POST",
         json: { assetId, note, roi, taskType, title, productName, sku, priceVnd, quantity, allowRemote, requestId: crypto.randomUUID(), tags: tags.split(",").map((t) => t.trim()).filter(Boolean) } });
@@ -327,7 +327,7 @@ export default function ExtractClient() {
 
   const openHistory = (h: ExRow) => {
     pollRef.current?.abort(); setJob(null); setProgress("");
-    setErr(h.status === "PROCESSING" ? "Ảnh này có tác vụ đang chạy. Mở Điều phối AI để tiếp tục theo dõi." : null);
+    setErr(h.status === "PROCESSING" ? "Ảnh này có tác vụ đang chạy. Quay lại sau để xem kết quả." : null);
     setAssetId(h.assetId);
     setImgUrl(h.thumb);
     setDims(null);
@@ -360,7 +360,7 @@ export default function ExtractClient() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold">Ảnh & Trích xuất</h1>
-        <span className="rounded-full border border-cyan-400/20 px-2 py-1 text-[10px] text-cyan-200">Gateway → AI Workers · không tải model</span>
+        <span className="rounded-full border border-cyan-400/20 px-2 py-1 text-[10px] text-cyan-200">Xử lý AI trên máy chủ · không tải model</span>
         <Badge color={sc}>{sl}</Badge>
         <div className="ml-auto hidden items-center gap-1 text-[11px] text-slate-400 md:flex">
           {(["EMPTY", "IMAGE_READY", "ANNOTATED", "PROCESSING", "REVIEW_REQUIRED", "VERIFIED"] as Status[]).map((s, i) => (
@@ -462,13 +462,13 @@ export default function ExtractClient() {
             <button onClick={saveDraft} disabled={!assetId || !note.trim() || status === "PROCESSING"} className="btn btn-ghost text-xs"><Save className="h-4 w-4" /> Lưu ghi chú · không cần AI</button>
             <label className="flex items-center gap-1.5 text-[11px] text-slate-400"><input type="checkbox" className="accent-cyan-400" checked={allowRemote} disabled={!remoteAllowed || status === "PROCESSING"} onChange={(e) => setAllowRemote(e.target.checked)} /> Cho phép gửi ảnh tới AI ngoài mạng riêng</label>
           </div>
-          {!remoteAllowed && <p className="text-[10px] text-slate-500">AI ngoài mạng riêng đang tắt. Worker nội bộ vẫn có thể xử lý ảnh.</p>}
+          {!remoteAllowed && <p className="text-[10px] text-slate-500">AI ngoài mạng riêng đang tắt. Xử lý AI nội bộ vẫn có thể xử lý ảnh.</p>}
           <button onClick={extract} disabled={status === "PROCESSING" || !assetId} className="btn btn-primary py-3 text-base">
             {status === "PROCESSING" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
             {status === "PROCESSING" ? progress || "Đang xử lý…" : result ? "Trích xuất lại" : "Trích xuất"}
           </button>
           {job && <JobProgress job={job} compact onUpdate={(updated) => { setJob(updated); if (updated.state === "queued") void followJob(updated.id); }} />}
-          {status === "FAILED" && <Link href="/orchestration" className="text-xs text-cyan-300 hover:underline">Kiểm tra Hermes / AI Workers →</Link>}
+          {status === "FAILED" && role === "owner" && <Link href="/admin" className="text-xs text-cyan-300 hover:underline">Mở trang quản trị →</Link>}
           {err && <div className="flex gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{err}</div>}
 
           {result && (

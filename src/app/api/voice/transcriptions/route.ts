@@ -31,14 +31,14 @@ export async function POST(req: Request) {
     const format = kind === "RIFF" ? "wav" : kind === "OggS" ? "ogg" : bytes[0] === 0x1a && bytes[1] === 0x45 ? "webm" : bytes.subarray(4, 8).toString() === "ftyp" ? "mp4" : kind.startsWith("ID3") || bytes[0] === 0xff ? "mp3" : null;
     if (!format) throw new AiError("UNSUPPORTED_AUDIO", "Không nhận dạng được định dạng âm thanh.", 415);
     const model = process.env.DAI_VOICE_STT_MODEL;
-    if (!model) throw new AiError("STT_NOT_CONFIGURED", "Voice Worker chưa có model STT.");
+    if (!model) throw new AiError("STT_NOT_CONFIGURED", "Dịch vụ nhận dạng giọng nói chưa có model.");
     const form = new FormData();
     form.append("file", new Blob([new Uint8Array(bytes)], { type: file.type }), `question.${format}`);
     form.append("model", model); form.append("language", "vi"); form.append("response_format", "json");
     const settings = await getSettings();
     const upstream = await serviceFetch("voice", "audio/transcriptions", { method: "POST", body: form }, { signal: req.signal, allowRemote: settings.remoteProcessingAllowed });
     const response = await boundedJson(upstream);
-    if (typeof response.text !== "string") throw new AiError("INVALID_TRANSCRIPT", "Voice Worker chưa trả lời thoại hợp lệ.");
+    if (typeof response.text !== "string") throw new AiError("INVALID_TRANSCRIPT", "Dịch vụ nhận dạng giọng nói chưa trả lời thoại hợp lệ.");
     return Response.json({ text: response.text.slice(0, 1000), source: "voice-worker", language: "vi", storedAudio: false });
   } catch (e) { return aiProblem(e); }
 }

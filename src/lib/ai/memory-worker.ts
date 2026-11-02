@@ -45,7 +45,7 @@ export async function evidenceWorker(input: JobInput, session: SessionPayload) {
 }
 
 export type MemorySummary = Awaited<ReturnType<typeof summaryWorker>>;
-export function buildReport(summary: MemorySummary, evidence: AnswerPayload["evidence"], fallbackReason?: string): AnswerPayload {
+export function buildReport(summary: MemorySummary, evidence: AnswerPayload["evidence"], fallbackReason?: string, role?: SessionPayload["role"]): AnswerPayload {
   const { totals: t, scope, daily } = summary;
   const warnings = [
     "Báo cáo chỉ đọc metadata/sự kiện đã lưu; chưa phân tích lại video gốc hoặc kết luận bất thường bằng thị giác.",
@@ -67,7 +67,7 @@ export function buildReport(summary: MemorySummary, evidence: AnswerPayload["evi
     ],
     calculation: { worker: "Memory/SQL", table: "events", aggregation: "COUNT(*) FILTER", filter: { clientReported: false, demoIncluded: t.demo > 0, camera: scope.camera }, range: [scope.start.toISOString(), scope.end.toISOString()], timezone: TZ, totals: t },
     evidence, evidenceCount: t.total, chart: daily,
-    nextActions: [{ label: "Mở dữ liệu nguồn", href: `/memory?from=${encodeURIComponent(scope.start.toISOString())}&to=${encodeURIComponent(scope.end.toISOString())}&trust=verified` }, { label: "Xem tác vụ AI", href: "/orchestration" }],
+    nextActions: [{ label: "Mở dữ liệu nguồn", href: `/memory?from=${encodeURIComponent(scope.start.toISOString())}&to=${encodeURIComponent(scope.end.toISOString())}&trust=verified` }, ...(role === "owner" ? [{ label: "Xem tác vụ AI", href: "/admin" }] : [])],
     warnings,
   };
 }

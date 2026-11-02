@@ -18,7 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const upstream = await getMjpegStream(cam.streamName);
     if (!upstream.ok || !upstream.body) return problem(503, "Luồng camera chưa sẵn sàng");
     const mime = upstream.headers.get("content-type") || "";
-    if (!mime.toLowerCase().startsWith("multipart/x-mixed-replace")) return problem(502, "Gateway trả về dữ liệu không phải MJPEG");
+    if (!mime.toLowerCase().startsWith("multipart/x-mixed-replace")) return problem(502, "Nguồn stream trả về dữ liệu không phải MJPEG");
     return new Response(upstream.body, { status: 200, headers: { "Content-Type": mime, "Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff" } });
   } catch { return problem(503, "Không truy cập được camera", "Kiểm tra go2rtc và mã hóa video (MJPEG có thể cần FFmpeg để chuyển mã)."); }
 }

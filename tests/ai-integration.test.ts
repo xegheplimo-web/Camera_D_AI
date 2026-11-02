@@ -175,7 +175,7 @@ test("Gateway + Hermes/Worker contracts (isolated API fixtures)", { timeout: 180
     const deep = await call("/api/chat", "POST", { requestId: randomUUID(), question: `Phân tích Camera ${camId} hôm nay` });
     const result = await settle(deep.data.job.id); assert.equal(result.job.state, "partial"); assert.equal(result.job.route, "fallback");
     assert.equal(result.assistant.answer.calculation.totals.entries, 4);
-    assert.ok(result.assistant.answer.warnings.some((w: string) => w.includes("Hermes chưa sẵn sàng")));
+    assert.ok(result.assistant.answer.warnings.some((w: string) => w.includes("Trợ lý AI chưa sẵn sàng")));
     const quick = await call("/api/chat", "POST", { requestId: randomUUID(), question: `Camera ${camId} hôm nay có bao nhiêu khách?` }); assert.equal(quick.status, 200); assert.equal(quick.data.assistant.answer.value, 4);
     state.hermesDown = false; await clearBreaker();
   });
