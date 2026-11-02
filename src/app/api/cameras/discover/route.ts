@@ -1,6 +1,6 @@
 import { authorize } from "@/lib/auth-server";
-import { discoverOnvif } from "@/lib/camera/onvif";
-import { problem } from "@/lib/audit";
+import { discoverOnvif, lanProbeRanges } from "@/lib/camera/onvif";
+import { audit, problem } from "@/lib/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +17,7 @@ export async function POST() {
   try {
     if (!pending) pending = discoverOnvif();
     const rows = await pending;
+    await audit("camera.discover", { targetType: "camera", detail: `ONVIF WS-Discovery quét ${lanProbeRanges().join(", ") || "default route"} — ${rows.length} thiết bị` });
     return Response.json({ items: rows, method: "ONVIF WS-Discovery", scannedAt: new Date().toISOString(), notice: "Chỉ phát hiện thiết bị hỗ trợ ONVIF và cho phép discovery trong cùng phân đoạn LAN." }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return problem(503, "Không thể quét ONVIF", "Kiểm tra tường lửa UDP 3702, adapter mạng và quyền truy cập mạng LAN");
