@@ -19,7 +19,7 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres # ephemeral CI database only
+          POSTGRES_PASSWORD: postgres # NOSONAR — ephemeral CI database only
           POSTGRES_DB: app_db
         ports:
           - 5432:5432
@@ -35,7 +35,7 @@ jobs:
           node-version: "22"
           cache: npm
       - name: Generate ephemeral CI credentials
-        run: |
+        run: | # NOSONAR — values are openssl-generated, no literals
           echo "AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
           echo "CAMERA_CREDENTIAL_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
           echo "ADMIN_PASSWORD=ci-$(openssl rand -hex 8)" >> "$GITHUB_ENV"
