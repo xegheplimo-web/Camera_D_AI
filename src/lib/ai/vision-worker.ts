@@ -41,20 +41,29 @@ function strings(v: unknown, max = 20): string[] {
 }
 function probability(v: unknown) { return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1 ? v : 0; }
 
+// Boxes only drive the overlay display; a malformed one must not sink the whole extraction.
+function validBox(b: unknown): b is number[] {
+  return Array.isArray(b) && b.length === 4 && b.every((n) => typeof n === "number" && Number.isFinite(n)) &&
+    b[0] >= 0 && b[1] >= 0 && b[2] > 0 && b[3] > 0 && b[0] + b[2] <= 1.000001 && b[1] + b[3] <= 1.000001;
+}
+function sanitizeBoxes(value: unknown): { boxes?: number[][]; dropped: number } {
+  if (!Array.isArray(value)) return { dropped: 0 };
+  const valid = value.filter(validBox);
+  return { boxes: valid.length ? valid.slice(0, 100) : undefined, dropped: value.length - valid.length };
+}
+
 export function normalizeExtraction(raw: Record<string, unknown>, engine: string): ExtractionResult {
   if (typeof raw.summary !== "string" || !Array.isArray(raw.objects) || typeof raw.ocrText !== "string" || !Array.isArray(raw.structured))
     throw new AiError("INVALID_EXTRACTION", "Xử lý AI không trả đầy đủ trường kết quả trích xuất.");
+  let droppedBoxes = 0;
   const objects: ExtractionResult["objects"] = raw.objects.slice(0, 100).map((value) => {
     if (!value || typeof value !== "object") throw new AiError("INVALID_EXTRACTION", "Dữ liệu đối tượng không hợp lệ.");
     const o = value as Record<string, unknown>;
     if (typeof o.label !== "string" || typeof o.count !== "number" || !Number.isSafeInteger(o.count) || o.count < 0 || o.count > 100000)
       throw new AiError("INVALID_EXTRACTION", "Nhãn/số lượng phải là dữ liệu quan sát hợp lệ; không suy ra 0 khi chưa biết.");
-    const boxes = Array.isArray(o.boxes) ? o.boxes.slice(0, 100).map((b: unknown) => {
-      if (!Array.isArray(b) || b.length !== 4 || b.some((n) => typeof n !== "number" || !Number.isFinite(n) || n < 0 || n > 1) || b[0] + b[2] > 1.001 || b[1] + b[3] > 1.001)
-        throw new AiError("INVALID_BOX", "Xử lý AI trả tọa độ ngoài vùng ảnh.");
-      return b as number[];
-    }) : undefined;
-    return { label: o.label.slice(0, 100), count: o.count, confidence: probability(o.confidence), boxes };
+    const { boxes, dropped } = sanitizeBoxes(o.boxes);
+    droppedBoxes += dropped;
+    return { label: o.label.slice(0, 100), count: o.count, confidence: probability(o.confidence), ...(boxes ? { boxes } : {}) };
   });
   const structured: ExtractionResult["structured"] = raw.structured.slice(0, 100).flatMap((value) => {
     if (!value || typeof value !== "object") return [];
@@ -66,7 +75,7 @@ export function normalizeExtraction(raw: Record<string, unknown>, engine: string
   });
   return { summary: raw.summary.slice(0, 4000), details: strings(raw.details), objects,
     ocrText: raw.ocrText.slice(0, 40000), structured, confidence: probability(raw.confidence),
-    warnings: [...strings(raw.warnings), "Kết quả do xử lý AI đề xuất; cần người dùng xác nhận trước khi dùng làm số liệu đã xác minh."], engine: [engine] };
+    warnings: [...strings(raw.warnings), ...(droppedBoxes ? [`Đã bỏ ${droppedBoxes} vùng chọn không hợp lệ do AI trả về.`] : []), "Kết quả do xử lý AI đề xuất; cần người dùng xác nhận trước khi dùng làm số liệu đã xác minh."], engine: [engine] };
 }
 
 export async function imageWorker(service: "vision" | "ocr", input: JobInput, jobId: string, signal: AbortSignal, image?: { dataUrl: string }, session?: SessionPayload) {

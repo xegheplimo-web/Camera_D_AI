@@ -39,7 +39,9 @@ test("Extraction: unknown is not zero; immutable AI result; no duplicate object 
   assert.equal(result.engine[0], "fixture");
   assert.throws(() => normalizeExtraction({ ...sample, objects: [{ label: "hộp", count: null }] }, "fixture"));
   assert.throws(() => normalizeExtraction({ ...sample, objects: [{ label: "hộp", count: -1 }] }, "fixture"));
-  assert.throws(() => normalizeExtraction({ ...sample, objects: [{ label: "hộp", count: 7, boxes: [[0.9, 0, 0.3, 0.1]] }] }, "fixture"));
+  const badBox = normalizeExtraction({ ...sample, objects: [{ label: "hộp", count: 7, boxes: [[0.9, 0, 0.3, 0.1]] }] }, "fixture");
+  assert.equal(badBox.objects[0].boxes, undefined);
+  assert.ok(badBox.warnings.includes("Đã bỏ 1 vùng chọn không hợp lệ do AI trả về."));
   assert.equal(mergeImageResults(result, { ...result, objects: [] }).objects[0].count, 7);
   assert.throws(() => mergeImageResults());
 });
