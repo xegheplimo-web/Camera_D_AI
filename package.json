@@ -13,6 +13,7 @@
     "test:retention": "node --import tsx --test tests/retention.test.ts",
     "test:seed": "node --import tsx --test tests/seed-marker.test.ts",
     "test:google": "node --import tsx --test tests/google-auth.unit.test.ts",
+    "test:rl-http": "node --import tsx --test tests/rl-http.test.ts",
     "db:push:dev": "drizzle-kit push"
   },
   "dependencies": {
