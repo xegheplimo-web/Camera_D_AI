@@ -78,6 +78,8 @@ jobs:
         run: npm run test:camera
       - name: Google auth unit tests
         run: npm run test:google
+      - name: Rate-limit + HTTP contract tests
+        run: npm run test:rl-http
 
   security:
     name: Security scans (gitleaks + semgrep + trivy)
