@@ -1,9 +1,11 @@
 # Minh họa, cần đối chiếu với phiên bản go2rtc được cài thực tế.
 # QUAN TRỌNG: chỉ truy cập giao diện quản trị go2rtc qua localhost.
+# Lưu ý (go2rtc 1.9.15): giữ file ASCII và KHÔNG khai báo `streams:` rỗng ({})
+# — parser patch-config của go2rtc trả 400 "did not find expected key" khi PUT
+# /api/streams; bỏ key này, go2rtc tự tạo `streams:` khi đăng ký stream đầu tiên.
 api:
   listen: 127.0.0.1:1984
 rtsp:
   listen: 127.0.0.1:8554
 webrtc:
-  listen: 127.0.0.1:8555
-streams: {}
+  listen: :8555
