@@ -5,9 +5,24 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LogIn, Loader2, ShieldCheck } from "lucide-react";
 import Robot from "@/components/Robot";
 
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.53 5.53 0 0 1-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82Z" />
+      <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09A11.99 11.99 0 0 0 12 24Z" />
+      <path fill="#FBBC05" d="M5.27 14.29A7.2 7.2 0 0 1 4.89 12c0-.8.14-1.57.38-2.29V6.62H1.29a12 12 0 0 0 0 10.76l3.98-3.09Z" />
+      <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42A11.58 11.58 0 0 0 12 0a12 12 0 0 0-10.71 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75Z" />
+    </svg>
+  );
+}
+
 function LoginForm() {
   const router = useRouter();
   const sp = useSearchParams();
+  const googleErr =
+    sp.get("google") === "denied" ? "Email Google chưa được cấp quyền. Liên hệ quản trị."
+    : sp.get("google") === "error" ? "Đăng nhập Google thất bại. Thử lại sau."
+    : null;
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -49,6 +64,11 @@ function LoginForm() {
         <div className="p-6 sm:p-8">
           <h2 className="text-lg font-semibold text-white">Đăng nhập</h2>
           <p className="mb-4 text-xs text-[#a9bad2]">Dùng tài khoản được cấp cho máy Windows hoặc điện thoại của bạn.</p>
+          {googleErr && (
+            <div className="mb-3 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100" role="alert">
+              {googleErr}
+            </div>
+          )}
           <form onSubmit={submit} className="space-y-3">
             <label className="block text-sm">
               <span className="mb-1 block text-[#a9bad2]">Tên đăng nhập</span>
@@ -67,6 +87,13 @@ function LoginForm() {
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />} {busy ? "Đang kiểm tra…" : "Đăng nhập"}
             </button>
           </form>
+
+          <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wider text-[#64748b]">
+            <span className="h-px flex-1 bg-white/10" /> hoặc <span className="h-px flex-1 bg-white/10" />
+          </div>
+          <a href="/api/auth/google" className="btn btn-ghost w-full">
+            <GoogleMark /> Đăng nhập bằng Google
+          </a>
 
           <div className="mt-5 rounded-xl border border-cyan-400/25 bg-cyan-500/10 p-3 text-xs text-cyan-100">
             <p className="font-semibold">Tài khoản hệ thống</p>

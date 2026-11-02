@@ -23,6 +23,18 @@ export async function ensureIdentitySeed() {
   ]);
 }
 
+/**
+ * Google-OAuth-only demo user (owner directive). Sentinel passwordHash can never
+ * verify (`verifyPassword` requires the scrypt$ format); google_sub is linked on
+ * first Google sign-in. Idempotent on the users.login unique index.
+ */
+export async function ensureGoogleSeed() {
+  await db
+    .insert(users)
+    .values({ login: "attong39@gmail.com", displayName: "attong39", passwordHash: "oauth$google$disabled", role: "owner" })
+    .onConflictDoNothing({ target: users.login });
+}
+
 export async function ensureSettingsSeed() {
   const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(appSettings);
   if (c > 0) return;
@@ -60,6 +72,7 @@ export async function ensureSeed() {
   if (seeding) return seeding;
   seeding = (async () => {
     await ensureIdentitySeed();
+    await ensureGoogleSeed();
     await ensureSettingsSeed();
     const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(cameras);
     if (c > 0) return;

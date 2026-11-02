@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { COOKIE_NAME } from "@/lib/token";
 import { serverSession } from "@/lib/auth-server";
 
-const PUBLIC = [/^\/login(?:\/|$)/, /^\/api\/auth\/(?:login|me)(?:\/|$)/, /^\/api\/health(?:\/|$)/,
+const PUBLIC = [/^\/login(?:\/|$)/, /^\/api\/auth\/(?:login|me|google)(?:\/|$)/, /^\/api\/health(?:\/|$)/,
   /^\/manifest\.webmanifest$/, /^\/sw\.js$/, /^\/icons\//, /^\/cams\//, /^\/favicon\.ico$/];
 
 // Next.js 16 Proxy uses the Node runtime, so revoked DB sessions are checked for every protected request.

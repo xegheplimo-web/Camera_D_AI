@@ -74,6 +74,8 @@ jobs:
         run: npm run test:ai
       - name: Camera/product unit tests
         run: npm run test:camera
+      - name: Google auth unit tests
+        run: npm run test:google
 
   security:
     name: Security scans (gitleaks + semgrep + trivy)

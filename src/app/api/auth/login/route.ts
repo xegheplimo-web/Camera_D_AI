@@ -1,8 +1,7 @@
 import { db } from "@/db";
-import { users, sessions } from "@/db/schema";
-import { and, eq } from "drizzle-orm";
-import { COOKIE_NAME, SESSION_TTL_SECONDS, signToken } from "@/lib/token";
-import { normalizeRole, requestMeta } from "@/lib/auth-server";
+import { users } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { normalizeRole, requestMeta, issueSession, sessionCookie } from "@/lib/auth-server";
 import { audit } from "@/lib/audit";
 import { ensureSeed } from "@/lib/seed";
 import { scryptSync, timingSafeEqual } from "crypto";
@@ -47,23 +46,9 @@ export async function POST(req: Request) {
     await audit("auth.login_failed", { targetType: "user", targetId: login, detail: meta.ip });
     return Response.json({ title: "Sai tên đăng nhập hoặc mật khẩu", status: 401 }, { status: 401 });
   }
-  const sid = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
-  await db.insert(sessions).values({ id: sid, userId: user.id, device: meta.device, userAgent: meta.ua, ip: meta.ip, expiresAt });
-  const token = await signToken({
-    sid,
-    sub: user.id,
-    name: user.displayName,
-    role: normalizeRole(user.role),
-    device: meta.device,
-    exp: Math.floor(expiresAt.getTime() / 1000),
-  });
+  const token = await issueSession(user, meta);
   await audit("auth.login", { targetType: "user", targetId: user.id, detail: meta.ip });
   const res = Response.json({ ok: true, user: { id: user.id, name: user.displayName, role: normalizeRole(user.role) } });
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  res.headers.append(
-    "Set-Cookie",
-    `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}${secure}`
-  );
+  res.headers.append("Set-Cookie", sessionCookie(token));
   return res;
 }
