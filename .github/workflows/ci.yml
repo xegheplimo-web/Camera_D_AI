@@ -74,3 +74,27 @@ jobs:
         run: npm run test:ai
       - name: Camera/product unit tests
         run: npm run test:camera
+
+  security:
+    name: Security scans (gitleaks + semgrep + trivy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Gitleaks (secret detection, full history)
+        uses: gitleaks/gitleaks-action@v3
+      - name: Semgrep (p/security-audit, error severity)
+        run: |
+          pip install semgrep
+          semgrep scan --config p/security-audit --severity ERROR --error || exit 1
+      - name: Trivy filesystem (fail on CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"

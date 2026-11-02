@@ -1,5 +1,9 @@
 # Camera D-AI v1.3 — Phát triển trực tiếp từ design-concept (3)
 
+[![CI](https://github.com/xegheplimo-web/Camera_D_AI/actions/workflows/ci.yml/badge.svg)](https://github.com/xegheplimo-web/Camera_D_AI/actions/workflows/ci.yml)
+[![E2E Browser Smoke](https://github.com/xegheplimo-web/Camera_D_AI/actions/workflows/e2e.yml/badge.svg)](https://github.com/xegheplimo-web/Camera_D_AI/actions/workflows/e2e.yml)
+[![CodeQL](https://github.com/xegheplimo-web/Camera_D_AI/actions/workflows/codeql.yml/badge.svg)](https://github.com/xegheplimo-web/Camera_D_AI/actions/workflows/codeql.yml)
+
 > **MÃ NGUỒN THỬ NGHIỆM**, chưa phải bộ cài `.exe` / `.apk`, chưa được xác minh production-ready.
 >
 > Bản v1.3 giữ nguyên Hermes Gateway / asynchronous Jobs / Workers / Memory của `(3).zip`. Các module v1.2 chỉ được hợp nhất khi mang lại chức năng còn thiếu.
