@@ -3,7 +3,7 @@ import { auditLog, events, extractions, assets, cameras, messages, sessions, use
 import { desc, eq, sql } from "drizzle-orm";
 import { audit } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
-import { ensureSeed, reseed } from "@/lib/seed";
+import { ensureSeed, reseed, demoSeedEnabled } from "@/lib/seed";
 import { purgeDemoData } from "@/lib/retention";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +33,7 @@ export async function GET() {
     liveEvents: d.live,
     demo: { events: d.demo, extractions: dx.c, assets: da.c },
     storageBytes: Number(st.bytes),
+    demoSeedEnabled: demoSeedEnabled(),
     visionCloud: Boolean(process.env.OPENAI_API_KEY),
     sessions: activeSessions,
     me: { name: auth.session.name, role: auth.session.role },
@@ -74,8 +75,9 @@ export async function POST(req: Request) {
     await db.delete(assets);
     await db.delete(cameras);
     await audit("data.reset_all", { targetType: "all" });
-    await reseed();
-    return Response.json({ ok: true });
+    // demoReseeded báo UI nói thật: flag tắt → hệ thống trống, không hứa "tạo lại mẫu".
+    const demoReseeded = await reseed();
+    return Response.json({ ok: true, demoReseeded });
   }
   if (action === "revoke_sessions") {
     await db.update(sessions).set({ revokedAt: new Date() }).where(sql`${sessions.id} <> ${auth.session.sid}`);

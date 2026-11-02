@@ -11,7 +11,7 @@ export type Settings = {
   detectEnabled: boolean;
 };
 const DEFAULTS: Settings = {
-  demoMode: true, retentionDays: 30, remotePlayback: false,
+  demoMode: false, retentionDays: 30, remotePlayback: false,
   requireVerifiedForAnswers: true, hermesEnabled: true, remoteProcessingAllowed: false,
   detectEnabled: false,
 };
