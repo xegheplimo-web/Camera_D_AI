@@ -51,6 +51,7 @@ function AuthenticatedShell({ children }: { children: ReactNode }) {
   const [now, setNow] = useState<Date | null>(null);
   const [alerts, setAlerts] = useState(0);
   const [uptime, setUptime] = useState(0);
+  const [demoMode, setDemoMode] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -74,6 +75,7 @@ function AuthenticatedShell({ children }: { children: ReactNode }) {
           const j = await r.json();
           setAlerts(j.unackedAlerts ?? 0);
           setUptime(j.uptimeSec ?? 0);
+          setDemoMode(j.settings?.demoMode === true);
         }
       } catch {
         if (alive) setOnline(false);
@@ -183,6 +185,12 @@ function AuthenticatedShell({ children }: { children: ReactNode }) {
       <VoiceCallDialog />
       <main className="px-3 pb-24 pt-4 sm:px-4 lg:px-6 lg:pb-8">
         {isOffline && <div className="mb-3 md:hidden"><OfflineBanner /></div>}
+        {demoMode && (
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200" role="status">
+            <ShieldAlert className="h-4 w-4 shrink-0" />
+            <span>Đang bật dữ liệu mẫu — <Link href="/settings" className="font-semibold underline">tắt trong Cài đặt</Link> trước khi dùng thật.</span>
+          </div>
+        )}
         {children}
       </main>
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Video, Volume2, Smartphone, Database, ShieldCheck, ScrollText, Trash2, Plus, Cpu, CheckCircle2, Circle, Users, HardDrive, Gauge, Pencil } from "lucide-react";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, Modal } from "@/components/ui";
 import { useApp } from "@/components/AppState";
 import { api, getDeviceId } from "@/lib/client";
 import { NoPermissionState } from "@/components/states";
@@ -32,6 +32,8 @@ export default function SettingsPage() {
   const [phrase, setPhrase] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [demoConfirm, setDemoConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
     api<Cam[]>("/api/cameras").then(setCams).catch(() => {});
@@ -96,6 +98,42 @@ export default function SettingsPage() {
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Không xoá được camera");
+    }
+  };
+
+  // T-1305: tắt demo lần đầu (còn dữ liệu mẫu trong DB) → hỏi xác nhận trước.
+  const onToggleDemo = (next: boolean) => {
+    if (!next && (admin?.demoEvents ?? 0) > 0 && !localStorage.getItem("dai_demo_off_confirmed")) {
+      setDemoConfirm(true);
+      return;
+    }
+    patchSettings({ demoMode: next });
+  };
+
+  const confirmDisableKeep = async () => {
+    localStorage.setItem("dai_demo_off_confirmed", "1");
+    setDemoConfirm(false);
+    await patchSettings({ demoMode: false });
+  };
+
+  // Nút trong dialog xác nhận: purge ngay qua POST /api/admin (owner), rồi tắt demoMode.
+  const purgeDemoNow = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const r = await api<{ events?: number; extractions?: number; assets?: number; bytes?: number }>("/api/admin", {
+        method: "POST",
+        json: { action: "purge_demo", confirmPhrase: "XOA DU LIEU", deviceId: getDeviceId() },
+      });
+      localStorage.setItem("dai_demo_off_confirmed", "1");
+      setDemoConfirm(false);
+      await patchSettings({ demoMode: false });
+      setMsg(`Đã xoá ${r.events ?? 0} sự kiện, ${r.extractions ?? 0} trích xuất, ${r.assets ?? 0} ảnh mẫu (${((r.bytes ?? 0) / 1024 / 1024).toFixed(1)} MB) và tắt dữ liệu mẫu. Nhật ký đã ghi lại.`);
+      load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Không xoá được dữ liệu mẫu");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -230,7 +268,7 @@ export default function SettingsPage() {
         <Card title={<span id="data" className="flex items-center gap-2"><Database className="h-4 w-4 text-amber-300" /> Dữ liệu & chế độ thật</span>}>
           <div className="space-y-3 text-sm">
             <label className="flex items-start gap-2 rounded-xl border border-white/10 p-2">
-              <input type="checkbox" checked={settings?.demoMode ?? true} disabled={!canManage} onChange={(e) => patchSettings({ demoMode: e.target.checked })} className="mt-0.5 accent-cyan-400" />
+              <input type="checkbox" checked={settings?.demoMode ?? false} disabled={!canManage} onChange={(e) => onToggleDemo(e.target.checked)} className="mt-0.5 accent-cyan-400" />
               <span>
                 <b>Hiển thị dữ liệu mẫu</b>
                 <span className="block text-xs text-[#a9bad2]">Tắt để mọi câu trả lời, thống kê và trí nhớ chỉ dùng dữ liệu thật. Bản ghi mẫu vẫn nằm trong DB nhưng bị loại khỏi truy vấn.</span>
@@ -339,6 +377,17 @@ export default function SettingsPage() {
           </table>
         </div>
       </Card>
+
+      <Modal open={demoConfirm} onClose={() => setDemoConfirm(false)} title="Tắt dữ liệu mẫu?">
+        <p className="text-sm text-[#c6d4e6]">Tắt dữ liệu mẫu sẽ ẩn toàn bộ event demo khỏi báo cáo. Dữ liệu demo vẫn còn trong DB cho tới khi xoá.</p>
+        <p className="mt-2 text-xs text-[#a9bad2]">Hiện có <b className="text-amber-200">{admin?.demoEvents ?? "–"}</b> sự kiện mẫu trong DB. Bạn có thể chỉ ẩn chúng, hoặc xoá vĩnh viễn ngay bây giờ.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button onClick={confirmDisableKeep} disabled={busy} className="btn btn-primary">Tắt &amp; giữ dữ liệu trong DB</button>
+          {isOwner && <button onClick={purgeDemoNow} disabled={busy} className="btn btn-danger"><Trash2 className="h-4 w-4" /> Xoá dữ liệu mẫu</button>}
+          <button onClick={() => setDemoConfirm(false)} disabled={busy} className="btn btn-ghost">Huỷ</button>
+        </div>
+        {!isOwner && <p className="mt-2 text-[11px] text-[#a9bad2]">Chỉ chủ hệ thống (owner) xoá được dữ liệu mẫu.</p>}
+      </Modal>
     </div>
   );
 }

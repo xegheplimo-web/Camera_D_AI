@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Users, LogOut, Car, AlertTriangle, Activity, Download, Database } from "lucide-react";
-import { Card, StatTile } from "@/components/ui";
+import { Badge, Card, StatTile } from "@/components/ui";
 import { api } from "@/lib/client";
 import { EVENT_TYPES } from "@/lib/labels";
 
@@ -12,7 +12,7 @@ type Stats = {
   totals: { personIn: number; personOut: number; vehicles: number; alerts: number; total: number };
   daily: { day: string; personIn: number; personOut: number; vehicles: number }[];
   heat: { dow: number; h: number; c: number }[];
-  byCamera: { cameraId: number; name: string; c: number }[];
+  byCamera: { cameraId: number; name: string; c: number; demo?: number }[];
   byType: { type: string; c: number }[];
 };
 
@@ -40,6 +40,7 @@ export default function StatsPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-bold">Thống kê</h1>
+        {!!s?.meta?.demoShare && <Badge color="amber">Dữ liệu mẫu {Math.round(s.meta.demoShare * 100)}%</Badge>}
         <div className="flex rounded-xl bg-white/5 p-1 text-sm">
           {[[1, "Hôm nay"], [7, "7 ngày"], [30, "30 ngày"]].map(([d, l]) => (
             <button key={d} onClick={() => setDays(d as number)} className={`rounded-lg px-3 py-1 ${days === d ? "bg-cyan-500/25 text-white" : "text-slate-400"}`}>{l}</button>
@@ -113,7 +114,7 @@ export default function StatsPage() {
           <div className="space-y-2">
             {s?.byCamera.map((c) => (
               <div key={c.cameraId}>
-                <div className="flex justify-between text-sm"><span>{c.name}</span><b>{c.c}</b></div>
+                <div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0 truncate">{c.name}</span><span className="flex items-center gap-1.5">{!!c.demo && <Badge color="amber">Dữ liệu mẫu</Badge>}<b>{c.c}</b></span></div>
                 <div className="mt-1 h-2 overflow-hidden rounded-full bg-white/5"><div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500" style={{ width: `${(c.c / maxCam) * 100}%` }} /></div>
               </div>
             ))}

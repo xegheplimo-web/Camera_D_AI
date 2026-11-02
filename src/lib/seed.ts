@@ -39,12 +39,21 @@ export async function ensureSettingsSeed() {
   const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(appSettings);
   if (c > 0) return;
   await db.insert(appSettings).values([
-    { key: "demoMode", value: true },
+    { key: "demoMode", value: demoSeedEnabled() },
     { key: "retentionDays", value: 30 },
     { key: "remotePlayback", value: false },
     { key: "requireVerifiedForAnswers", value: false },
     { key: "detectEnabled", value: false },
   ]);
+}
+
+/**
+ * T-1305: dữ liệu mẫu chỉ được seed khi dev/demo chủ động bật CAMDAI_DEMO_SEED=1.
+ * Cài mới mặc định demoMode=false và KHÔNG tạo topology demo (camera/sự kiện/trích xuất giả lập).
+ * DB đã có demoMode=true từ trước không bị ghi đè — người dùng tắt tay trong Cài đặt.
+ */
+export function demoSeedEnabled() {
+  return process.env.CAMDAI_DEMO_SEED === "1";
 }
 
 let seeding: Promise<void> | null = null;
@@ -75,6 +84,7 @@ export async function ensureSeed() {
     await ensureIdentitySeed();
     await ensureGoogleSeed();
     await ensureSettingsSeed();
+    if (!demoSeedEnabled()) return;
     const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(cameras);
     if (c > 0) return;
 

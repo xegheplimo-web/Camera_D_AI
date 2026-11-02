@@ -51,7 +51,7 @@ export async function GET(req: Request) {
     .groupBy(dowExpr, hourExpr);
 
   const byCamera = await db
-    .select({ cameraId: events.cameraId, c: sql<number>`count(*)::int` })
+    .select({ cameraId: events.cameraId, c: sql<number>`count(*)::int`, demo: sql<number>`count(*) filter (where ${events.source} = 'demo')::int` })
     .from(events)
     .where(where)
     .groupBy(events.cameraId);
@@ -89,7 +89,7 @@ export async function GET(req: Request) {
     byCamera: byCamera
       .map((b) => {
         const c = cams.find((x) => x.id === b.cameraId);
-        return { cameraId: b.cameraId, name: c ? `${c.name} – ${c.location}` : `#${b.cameraId}`, c: b.c };
+        return { cameraId: b.cameraId, name: c ? `${c.name} – ${c.location}` : `#${b.cameraId}`, c: b.c, demo: b.demo };
       })
       .sort((a, b) => b.c - a.c),
     byType: byType.sort((a, b) => b.c - a.c),

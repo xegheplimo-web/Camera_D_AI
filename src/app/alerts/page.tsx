@@ -14,7 +14,7 @@ type Cam = { id: number; name: string; location: string };
 
 export default function AlertsPage() {
   const { setMood } = useApp();
-  const [data, setData] = useState<{ counts: { total: number; unacked: number; critical: number; important: number }; rules: Rule[]; items: AlertItem[]; canManage: boolean } | null>(null);
+  const [data, setData] = useState<{ counts: { total: number; unacked: number; critical: number; important: number; demo: number }; rules: Rule[]; items: AlertItem[]; canManage: boolean } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<EventItem | null>(null);
@@ -80,6 +80,13 @@ export default function AlertsPage() {
             <CheckCheck className="h-4 w-4" /> Đánh dấu đã đọc tất cả
           </button>
         </div>
+
+        {!!data?.counts.demo && (
+          <div className="flex items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            <Badge color="amber">Dữ liệu mẫu</Badge>
+            <span>{data.counts.demo}/{data.counts.total} cảnh báo trong danh sách là dữ liệu mẫu — không phải sự kiện camera thật. Mỗi mục mẫu được gắn nhãn “mẫu”; tắt trong Cài đặt để ẩn khỏi báo cáo.</span>
+          </div>
+        )}
 
         <div className="grid grid-cols-3 gap-3">
           {[

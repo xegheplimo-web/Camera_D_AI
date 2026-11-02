@@ -28,6 +28,7 @@ export async function GET(req: Request) {
       unacked: sql<number>`count(*) filter (where ${events.ackAt} is null)::int`,
       critical: sql<number>`count(*) filter (where ${events.priority} = 'critical')::int`,
       important: sql<number>`count(*) filter (where ${events.priority} = 'important')::int`,
+      demo: sql<number>`count(*) filter (where ${events.source} = 'demo')::int`,
     })
     .from(events)
     .where(where);
