@@ -19,7 +19,7 @@ export const users = pgTable(
     id: serial("id").primaryKey(),
     login: text("login").notNull(),
     displayName: text("display_name").notNull(),
-    passwordHash: text("password_hash").notNull(),
+    passwordHash: text("password_hash"), // NULL = OAuth-only account, password login can never succeed
     role: text("role").notNull().default("viewer"), // owner | operator | viewer
     disabled: boolean("disabled").notNull().default(false),
     googleSub: text("google_sub"), // linked Google OIDC sub; unique, multiple NULLs allowed

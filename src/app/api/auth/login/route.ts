@@ -21,7 +21,8 @@ function rateLimited(key: string) {
   return rec.count > 8;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+export function verifyPassword(password: string, stored: string | null): boolean {
+  if (!stored) return false; // OAuth-only accounts have NULL password_hash
   const [scheme, salt, hash] = stored.split("$");
   if (scheme !== "scrypt" || !salt || !hash) return false;
   const calc = scryptSync(password, salt, 64);

@@ -24,14 +24,14 @@ export async function ensureIdentitySeed() {
 }
 
 /**
- * Google-OAuth-only demo user (owner directive). Sentinel passwordHash can never
- * verify (`verifyPassword` requires the scrypt$ format); google_sub is linked on
- * first Google sign-in. Idempotent on the users.login unique index.
+ * Google-OAuth-only demo user (owner directive). NULL passwordHash means password
+ * login can never succeed; google_sub is linked on first Google sign-in.
+ * Idempotent on the users.login unique index.
  */
 export async function ensureGoogleSeed() {
   await db
     .insert(users)
-    .values({ login: "attong39@gmail.com", displayName: "attong39", passwordHash: "oauth$google$disabled", role: "owner" })
+    .values({ login: "attong39@gmail.com", displayName: "attong39", passwordHash: null, role: "owner" })
     .onConflictDoNothing({ target: users.login });
 }
 
