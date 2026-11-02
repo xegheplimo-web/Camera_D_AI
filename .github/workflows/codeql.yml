@@ -12,6 +12,7 @@ jobs:
   analyze:
     name: CodeQL (javascript-typescript)
     runs-on: ubuntu-latest
+    if: github.event.repository.private != true
     permissions:
       actions: read
       contents: read
