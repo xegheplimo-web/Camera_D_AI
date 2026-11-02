@@ -225,12 +225,8 @@ export function createFixedWindowLimiter({ maxAttempts, windowMs, maxEntries }: 
       hits.delete(key);
       if (hits.size >= maxEntries) {
         for (const [k, v] of hits) if (v.reset <= now) hits.delete(k);
-        while (hits.size >= maxEntries) {
-          for (const oldest of hits.keys()) {
-            hits.delete(oldest);
-            break;
-          }
-        }
+        // LRU eviction: delete the least-recently-hit key (Map keeps insertion order).        
+        while (hits.size >= maxEntries) hits.delete(hits.keys().next().value!);
       }
       hits.set(key, { count: 1, reset: now + windowMs });
       return false;
