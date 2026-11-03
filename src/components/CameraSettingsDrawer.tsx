@@ -19,7 +19,8 @@ type CamSettings = {
   privacyMasks: Record<string, unknown>[];
   notifyEnabled: boolean;
   revision: number;
-  capabilities?: { record?: boolean };
+  /** Server tính — xem GET /settings: cờ nào === true mới được bật; `reason` giải thích cờ khoá. */
+  capabilities?: Partial<Record<FlagKey, boolean>> & { reason?: Record<string, string> };
 };
 
 type KItem = { id: number; title: string; sku: string | null; note: string | null; priceVnd: number | null; createdAt: string };
@@ -37,8 +38,6 @@ const PROFILES: [string, string][] = [
 ];
 
 type FlagKey = "live" | "playback" | "snapshot" | "record" | "ask" | "pricing";
-// Các tính năng chưa có phần xử lý phía máy chủ trong phase này: luôn khoá + ghi "Chưa khả dụng", không lưu trạng thái bật.
-const UNAVAILABLE: readonly FlagKey[] = ["playback", "record", "pricing"];
 const FEATURE_LIST: { key: FlagKey; label: string }[] = [
   { key: "live", label: "Xem trực tiếp" },
   { key: "playback", label: "Xem lại" },
@@ -57,13 +56,6 @@ const flagsOf = (f: Record<string, unknown> | undefined): Record<FlagKey, boolea
   ask: f?.ask !== false,
   pricing: f?.pricing === true,
 });
-
-/** Trước khi ghi: tính năng chưa khả dụng luôn ép về false — không bao giờ lưu trạng thái bật. */
-const cleanFeatures = (f: Record<string, unknown>): Record<string, unknown> => {
-  const next = { ...f };
-  for (const k of UNAVAILABLE) next[k] = false;
-  return next;
-};
 
 const zoneLabel = (z: Record<string, unknown>, i: number, fallback: string) => {
   const n = z.name ?? z.label ?? z.title;
@@ -197,7 +189,9 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
     return ok;
   };
 
-  const setFlag = (key: FlagKey, v: boolean) => void save({ features: cleanFeatures({ ...s!.features, [key]: v }) });
+  // "Lưu video" lái cột record_enabled (control-plane thật qua recorder); các cờ còn lại vẫn là tuỳ chọn trong features.
+  const setFlag = (key: FlagKey, v: boolean) =>
+    void save(key === "record" ? { recordEnabled: v } : { features: { ...s!.features, [key]: v } });
 
   const name = nameD ?? cam.name;
   const loc = locD ?? cam.location;
@@ -215,7 +209,7 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
         setLocD(null);
       }
       if (note !== noteSaved) {
-        const f = cleanFeatures({ ...s.features });
+        const f = { ...s.features };
         if (note.trim()) f.note = note.trim();
         else delete f.note;
         if (await patchSettings({ features: f })) setNoteD(null);
@@ -425,15 +419,19 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
           </label>
           <div className="mt-2 divide-y divide-white/5">
             {FEATURE_LIST.map((f) => {
-              const ready = !UNAVAILABLE.includes(f.key);
+              const ready = s ? s.capabilities?.[f.key] === true : false;
+              const reason = s?.capabilities?.reason?.[f.key];
               return (
                 <div key={f.key} data-feature={f.key} className="flex items-center justify-between gap-2 py-2 text-sm">
-                  <span className="min-w-0">{f.label}</span>
+                  <span className="min-w-0">
+                    {f.label}
+                    {!ready && reason ? <span className="block truncate text-[11px] font-normal text-slate-500">{reason}</span> : null}
+                  </span>
                   <span className="flex items-center gap-2">
-                    {!ready && <Badge color="slate">Chưa khả dụng</Badge>}
+                    {!ready && s && <Badge color="slate">Chưa khả dụng</Badge>}
                     <Switch
                       label={f.label}
-                      checked={ready ? flags[f.key] : false}
+                      checked={ready && (f.key === "record" ? s?.recordEnabled === true : flags[f.key])}
                       disabled={!ready || !s || saving}
                       onChange={(v) => setFlag(f.key, v)}
                     />

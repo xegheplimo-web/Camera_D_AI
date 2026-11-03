@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { audit, problem } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
 import { authorizeResource } from "@/lib/scope";
+import { removeRecordingPath } from "@/lib/camera/recorder";
 import { removeGo2rtcStream } from "@/lib/camera/stream";
 import { publicCamera } from "@/lib/camera/public";
 
@@ -91,6 +92,13 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
     }
   }
 
+  // T-1340: gỡ path recorder mediaMTX (best-effort như go2rtc — không chặn xoá DB).
+  const rec = await removeRecordingPath(cam.streamName ?? `dai_cam_${id}`);
+  const recordingRemoved = rec.reachable && !rec.pathExists;
+  if (!rec.reachable && (cam.streamName || cam.sourceCiphertext)) {
+    warning = [warning, "mediaMTX chưa gỡ path — xoá tay trong mediaMTX."].filter(Boolean).join(" ");
+  }
+
   await db.transaction(async (tx) => {
     if (eventCount > 0) {
       // extractions.asset_id NOT NULL nên giữ hàng — chỉ gỡ con trỏ event trước khi xoá events.
@@ -107,5 +115,5 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
     targetId: id,
     detail: `${cam.code} · ${cam.name}; events=${eventCount}; cascade=${cascade}; stream=${cam.streamName ?? "-"}`,
   });
-  return Response.json({ ok: true, deleted: id, eventsRemoved: eventCount, streamRemoved, warning });
+  return Response.json({ ok: true, deleted: id, eventsRemoved: eventCount, streamRemoved, recordingRemoved, warning });
 }
