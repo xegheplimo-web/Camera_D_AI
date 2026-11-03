@@ -83,10 +83,9 @@ export default function CameraDiscovery({ cameras, onAdded, canManage, onControl
 
   useEffect(() => {
     if (!canManage) return;
-    // Automatically discover on page load and once every 60 s. Do not automatically enroll devices.
+    // Automatically discover once when the page opens; re-scan only runs when the user clicks the button. Do not automatically enroll devices.
     const t = setTimeout(() => scan(), 300);
-    const repeat = setInterval(() => scan(), 60_000);
-    return () => { clearTimeout(t); clearInterval(repeat); };
+    return () => clearTimeout(t);
   }, [canManage, scan]);
 
   const choose = (d: Device) => {
@@ -134,7 +133,7 @@ export default function CameraDiscovery({ cameras, onAdded, canManage, onControl
         <h2 className="flex items-center gap-2 font-semibold"><RadioTower className="h-5 w-5 text-cyan-300" /> Tự động tìm camera cùng mạng LAN</h2>
         {canManage && <button onClick={scan} disabled={scanState === "scanning"} className="btn btn-ghost text-xs"><RefreshCw className={`h-4 w-4 ${scanState === "scanning" ? "animate-spin" : ""}`} /> Quét lại</button>}
       </div>
-      <p className="text-xs text-[#a9bad2]">Tự quét ONVIF khi mở trang và mỗi 60 giây trên máy chủ Windows. Không tự thêm camera khi chưa được chủ thiết bị cho phép. Tìm kiếm chỉ trong LAN; không quét Internet.</p>
+      <p className="text-xs text-[#a9bad2]">Tự quét ONVIF một lần khi mở trang trên máy chủ Windows — bấm “Quét lại” để quét thêm khi cần. Không tự thêm camera khi chưa được chủ thiết bị cho phép. Tìm kiếm chỉ trong LAN; không quét Internet.</p>
       {!canManage ? <p className="text-xs text-amber-200"><ShieldAlert className="mr-1 inline h-4 w-4" />Chỉ owner/operator được quét và thêm camera.</p> : null}
       {error && <p className="rounded-lg border border-rose-400/40 bg-rose-500/10 p-2 text-xs text-rose-100" role="alert">{error}</p>}
       {notice && <p className="rounded-lg bg-slate-800/70 p-2 text-xs" role="status">{notice}</p>}
