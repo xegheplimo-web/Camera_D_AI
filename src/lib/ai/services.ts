@@ -2,10 +2,13 @@ import { db } from "@/db";
 import { aiServices } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getSettings } from "@/lib/settings";
-import { AiError, type Egress, type ServiceName } from "./types";
+import { AiError, type Egress, type ServiceName, type TaskType } from "./types";
+import { recordRoute, type ConsentState } from "./telemetry";
 
 type ServiceConfig = { base: URL; key: string; model: string; remote: boolean; egress: Egress };
 const PREFIX: Record<ServiceName, string> = { hermes: "HERMES", vision: "DAI_VISION", ocr: "DAI_OCR", voice: "DAI_VOICE" };
+/** Task mặc định của mỗi dịch vụ — dùng cho telemetry khi call site không khai báo task cụ thể. */
+const DEFAULT_TASK: Record<ServiceName, TaskType> = { hermes: "analysis.multi_step", vision: "image.describe", ocr: "ocr.read", voice: "speech.stt" };
 export const SERVICE_LABELS: Record<ServiceName, string> = { hermes: "Trợ lý AI", vision: "Nhận diện hình ảnh", ocr: "Nhận dạng văn bản", voice: "Giọng nói AI" };
 
 function privateHost(host: string): boolean {
@@ -65,9 +68,18 @@ export async function serviceFetch(name: ServiceName, path: string, init: Reques
   const c = serviceConfig(name);
   if (!c) throw new AiError("NOT_CONFIGURED", `${SERVICE_LABELS[name]} chưa được cấu hình trên máy chủ.`);
   const settings = await getSettings();
+  const consentState: ConsentState = c.remote ? (settings.remoteProcessingAllowed && options.allowRemote === true ? "allowed" : "denied") : "not_required";
+  const requestId = new Headers(init.headers).get("Idempotency-Key") ?? undefined;
+  // One ai.route row per real model call (never for health probes); fire-and-forget.
+  const logRoute = (ok: boolean, latencyMs: number) => {
+    if (options.probe) return;
+    void recordRoute({ taskType: DEFAULT_TASK[name], adapter: name, model: c.model, latencyMs, ok, fallbackUsed: false, consentState, requestId });
+  };
   if (name === "hermes" && !settings.hermesEnabled) throw new AiError("HERMES_DISABLED", "Trợ lý AI đang được tạm dừng; dịch vụ AI vẫn xử lý đường nhanh.");
-  if (c.remote && (!settings.remoteProcessingAllowed || options.allowRemote !== true))
+  if (c.remote && (!settings.remoteProcessingAllowed || options.allowRemote !== true)) {
+    logRoute(false, 0);
     throw new AiError("CONSENT_REQUIRED", "Chưa cho phép gửi dữ liệu đến dịch vụ AI ngoài mạng riêng.", 403);
+  }
   const [state] = await db.select().from(aiServices).where(eq(aiServices.name, name)).limit(1);
   if (!options.probe && state?.cooldownUntil && state.cooldownUntil > new Date())
     throw new AiError("CIRCUIT_OPEN", `${SERVICE_LABELS[name]} đang tạm nghỉ 30 giây sau các lỗi kết nối. Dịch vụ AI sẽ dùng phương án dự phòng.`);
@@ -83,12 +95,14 @@ export async function serviceFetch(name: ServiceName, path: string, init: Reques
       throw new AiError(r.status === 429 ? "UPSTREAM_BUSY" : "UPSTREAM_HTTP", `${SERVICE_LABELS[name]} trả lỗi ${r.status}. Không có kết quả nào được coi là đã xác minh.`, r.status === 429 ? 429 : 503);
     }
     await markService(name, true, Date.now() - start);
+    logRoute(true, Date.now() - start);
     return r;
   } catch (e) {
     if (options.signal?.aborted && (options.signal.reason as Error | undefined)?.name !== "TimeoutError")
       throw new AiError("CANCELLED", "Đã hủy yêu cầu tại dịch vụ AI; không ghi nhận đây là lỗi kết nối dịch vụ.", 409);
     const code = e instanceof AiError ? e.code : e instanceof Error && ["AbortError", "TimeoutError"].includes(e.name) ? "TIMEOUT" : "UNREACHABLE";
     await markService(name, false, Date.now() - start, code);
+    logRoute(false, Date.now() - start);
     if (options.signal?.aborted) throw new AiError("CANCELLED", "Đã hủy tác vụ.", 409);
     if (e instanceof AiError) throw e;
     throw new AiError(code, `${SERVICE_LABELS[name]} ${code === "TIMEOUT" ? "phản hồi quá thời gian" : "không kết nối được"}.`);
