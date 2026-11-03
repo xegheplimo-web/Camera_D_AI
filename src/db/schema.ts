@@ -315,6 +315,9 @@ export const knowledgeItems = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    /** T-1355: item bị gộp vào item khác (không xoá — còn hoàn tác được 24 h). */
+    mergedIntoId: bigint("merged_into_id", { mode: "number" }),
+    mergedAt: timestamp("merged_at", { withTimezone: true }),
   },
   (t) => [
     index("knowledge_items_tenant_deleted_idx").on(t.tenantId, t.deletedAt),
@@ -354,6 +357,35 @@ export const knowledgePriceHistory = pgTable(
     priceVnd: integer("price_vnd").notNull(),
     effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
     createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    /** T-1355: provenance — giá đến từ đâu và đã được duyệt chưa. */
+    priceSource: text("price_source"), // manual | ocr | supplier | import
+    approvalStatus: text("approval_status").notNull().default("approved"), // pending | approved | rejected
+    storeId: integer("store_id"),
   },
-  (t) => [index("knowledge_price_history_item_idx").on(t.itemId)]
+  (t) => [
+    index("knowledge_price_history_item_idx").on(t.itemId),
+    check("knowledge_price_history_approval_chk", sql`${t.approvalStatus} in ('pending','approved','rejected')`),
+  ]
+);
+
+/**
+ * T-1355: nhật ký gộp để hoàn tác trong 24 h. `payload` giữ đủ dữ liệu phục hồi
+ * (id ảnh/lịch sử giá đã chuyển, custom trước khi gộp) — undo không cần đoán.
+ */
+export const knowledgeMergeLog = pgTable(
+  "knowledge_merge_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "restrict" }),
+    sourceId: bigint("source_id", { mode: "number" }).notNull(),
+    targetId: bigint("target_id", { mode: "number" }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    undoneAt: timestamp("undone_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("knowledge_merge_log_tenant_idx").on(t.tenantId, t.createdAt),
+    index("knowledge_merge_log_target_idx").on(t.targetId),
+  ]
 );
