@@ -99,6 +99,12 @@ jobs:
         run: npm run test:rl-http
       - name: Camera health probe tests (T-1319)
         run: npm run test:t1319
+      - name: Feature regression suites (T-1318 → T-1340)
+        run: |
+          for s in test:scope test:retention test:t1318 test:t1323 test:t1335 test:t1336 test:t1337 test:t1338 test:t1339 test:t1340; do
+            echo "== $s =="
+            npm run "$s" || exit 1
+          done
 
   security:
     name: Security scans (gitleaks + semgrep + trivy)

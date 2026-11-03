@@ -6,7 +6,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync, createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import sharp from "sharp";
-import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, type Browser, type BrowserContext, type Page, type Route } from "@playwright/test";
 import { db, pool } from "../src/db";
 import { users, cameras, assets, events, sessions, auditLog, knowledgeItems } from "../src/db/schema";
 import { inArray, like, or } from "drizzle-orm";
@@ -52,6 +52,30 @@ async function openDrawer(camId: number) {
     assert.equal(res.status(), 200, "GET settings phải thành công khi mở drawer");
   }
   await dlg().waitFor({ state: "visible" });
+}
+
+/** Đóng drawer nếu đang mở — unmount ⇒ lần mở sau chạy load() và GET settings mới. */
+async function closeDrawer() {
+  if (!(await dlg().isVisible().catch(() => false))) return;
+  await dlg().locator('button[aria-label="Đóng cài đặt"]').click();
+  await dlg().waitFor({ state: "hidden" });
+}
+
+/**
+ * Chặn GET /settings của camId: forward tới server thật rồi fulfill lại với
+ * `capabilities` (và `extra` nếu cần) giả lập. T-1340 làm capabilities phụ thuộc
+ * mediaMTX/segments thật ⇒ ca render phải tự mang contract, không theo máy chạy.
+ */
+async function stubCapabilities(camId: number, capabilities: Record<string, unknown>, extra: Record<string, unknown> = {}) {
+  const url = `**/api/cameras/${camId}/settings`;
+  const handler = async (route: Route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const res = await route.fetch();
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    await route.fulfill({ response: res, json: { ...body, ...extra, capabilities } });
+  };
+  await page.route(url, handler);
+  return () => page.unroute(url, handler);
 }
 
 before(async () => {
@@ -146,26 +170,70 @@ test("drawer mở tại chỗ đủ 5 mục đúng thứ tự; Lưu video/Tính 
   const frameEl = await page.locator(".aspect-video").first().locator("img, video").first().elementHandle();
   assert.ok(frameEl, "phải có phần tử stream trên khung hình");
 
-  await openDrawer(camA);
-  assert.ok(page.url().startsWith(base + "/camera"), "mở drawer không rời trang live");
-  const frameEl2 = await page.locator(".aspect-video").first().locator("img, video").first().elementHandle();
-  assert.ok(await page.evaluate(([x, y]) => x === y, [frameEl, frameEl2]), "phần tử stream không bị thay thế khi mở drawer");
+  // Capabilities giả lập tường minh: recorder/segments thật của máy chạy không được lái ca này.
+  const unroute = await stubCapabilities(camA, {
+    live: true, playback: false, record: false, snapshot: true, ask: true, pricing: false,
+    reason: { record: "Chưa cấu hình ghi hình", pricing: "Chưa có nhận diện sản phẩm" },
+  });
+  try {
+    await openDrawer(camA);
+    assert.ok(page.url().startsWith(base + "/camera"), "mở drawer không rời trang live");
+    const frameEl2 = await page.locator(".aspect-video").first().locator("img, video").first().elementHandle();
+    assert.ok(await page.evaluate(([x, y]) => x === y, [frameEl, frameEl2]), "phần tử stream không bị thay thế khi mở drawer");
 
-  const sections = await dlg().locator("section").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
-  assert.deepEqual(sections, ["Thông tin & vị trí", "Tính năng AI", "Ảnh & ghi chú", "Khu vực & quy tắc", "Lưu trữ & cảnh báo"]);
+    const sections = await dlg().locator("section").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+    assert.deepEqual(sections, ["Thông tin & vị trí", "Tính năng AI", "Ảnh & ghi chú", "Khu vực & quy tắc", "Lưu trữ & cảnh báo"]);
 
-  for (const key of ["playback", "record", "pricing"]) {
-    const row = aiSection().locator(`[data-feature="${key}"]`);
-    assert.match(await row.innerText(), /Chưa khả dụng/, `${key} phải ghi Chưa khả dụng`);
-    assert.equal(await row.locator('[role="switch"]').isDisabled(), true, `${key} phải disabled`);
+    for (const key of ["playback", "record", "pricing"]) {
+      const row = aiSection().locator(`[data-feature="${key}"]`);
+      assert.match(await row.innerText(), /Chưa khả dụng/, `${key} phải ghi Chưa khả dụng`);
+      assert.equal(await row.locator('[role="switch"]').isDisabled(), true, `${key} phải disabled`);
+    }
+    for (const key of ["live", "snapshot", "ask"]) {
+      assert.equal(await aiSection().locator(`[data-feature="${key}"] [role="switch"]`).isEnabled(), true, `${key} phải dùng được`);
+    }
+
+    const zone = dlg().locator('section[aria-label="Khu vực & quy tắc"]');
+    assert.equal(await zone.getByRole("button", { name: "Vẽ khu vực" }).isDisabled(), true);
+    assert.match(await zone.innerText(), /Chưa khả dụng/);
+  } finally {
+    await closeDrawer();
+    await unroute();
   }
-  for (const key of ["live", "snapshot", "ask"]) {
-    assert.equal(await aiSection().locator(`[data-feature="${key}"] [role="switch"]`).isEnabled(), true, `${key} phải dùng được`);
-  }
+});
 
-  const zone = dlg().locator('section[aria-label="Khu vực & quy tắc"]');
-  assert.equal(await zone.getByRole("button", { name: "Vẽ khu vực" }).isDisabled(), true);
-  assert.match(await zone.innerText(), /Chưa khả dụng/);
+/* ============ 2b. Capabilities mở record/playback ⇒ switch dùng được; pricing vẫn khoá ============ */
+
+test("capabilities record/playback=true ⇒ 'Ghi hình liên tục' không disabled + aria-checked=recordEnabled; 'Tính tiền' vẫn Chưa khả dụng", async () => {
+  const unroute = await stubCapabilities(camA, {
+    live: true, playback: true, record: true, snapshot: true, ask: true, pricing: false,
+    reason: { pricing: "Chưa có nhận diện sản phẩm" },
+  }, { recordEnabled: true });
+  try {
+    await openDrawer(camA);
+
+    // Hàng "Ghi hình liên tục" trong mục Lưu trữ & cảnh báo.
+    const recRow = dlg().locator('[data-flag="record"]');
+    const recSwitch = recRow.locator('button[role="switch"]');
+    await recSwitch.waitFor();
+    assert.equal(await recSwitch.isDisabled(), false, "capabilities.record=true ⇒ 'Ghi hình liên tục' không disabled");
+    assert.equal(await recSwitch.getAttribute("aria-checked"), "true", "aria-checked phải bằng recordEnabled trong settings");
+    assert.doesNotMatch(await recRow.innerText(), /Chưa khả dụng/, "recorder khả dụng ⇒ 'Ghi hình liên tục' hết badge");
+
+    for (const key of ["playback", "record"] as const) {
+      const row = aiSection().locator(`[data-feature="${key}"]`);
+      const text = await row.innerText();
+      assert.match(text, key === "record" ? /Lưu video/ : /Xem lại/, `${key} phải đúng nhãn`);
+      assert.doesNotMatch(text, /Chưa khả dụng/, `${key} khả dụng ⇒ hết badge Chưa khả dụng`);
+      assert.equal(await row.locator('[role="switch"]').isDisabled(), false, `${key} phải dùng được`);
+    }
+    const pricingRow = aiSection().locator('[data-feature="pricing"]');
+    assert.match(await pricingRow.innerText(), /Chưa khả dụng/, "pricing vẫn khoá phase này");
+    assert.equal(await pricingRow.locator('[role="switch"]').isDisabled(), true, "pricing vẫn disabled");
+  } finally {
+    await closeDrawer();
+    await unroute();
+  }
 });
 
 /* ============ 3. Toggle tính năng: PATCH đúng cameraId, revision tăng; camera B không đổi ============ */
