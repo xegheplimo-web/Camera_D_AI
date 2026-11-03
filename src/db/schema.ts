@@ -1,6 +1,9 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   serial,
+  bigserial,
+  bigint,
   text,
   integer,
   real,
@@ -9,6 +12,7 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
 
 /* ---------------- Identity (G2 security foundation) ---------------- */
@@ -272,3 +276,84 @@ export const auditLog = pgTable("audit_log", {
   detail: text("detail"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/* ---------------- T-1335: camera settings + knowledge base ---------------- */
+
+/** Một hàng/camera; `revision` là optimistic lock chống ghi đè lạc hậu (PATCH lệch revision → 409). */
+export const cameraSettings = pgTable("camera_settings", {
+  cameraId: integer("camera_id").primaryKey().references(() => cameras.id, { onDelete: "cascade" }),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "restrict" }),
+  profile: text("profile").notNull().default("custom"), // family | shop | warehouse | parking | factory | custom
+  features: jsonb("features").$type<Record<string, unknown>>().notNull().default({}),
+  recordEnabled: boolean("record_enabled").notNull().default(false),
+  recordAudio: boolean("record_audio").notNull().default(false),
+  retentionDays: integer("retention_days").notNull().default(7),
+  detectFps: integer("detect_fps").notNull().default(5),
+  zones: jsonb("zones").$type<Record<string, unknown>[]>().notNull().default([]),
+  countLines: jsonb("count_lines").$type<Record<string, unknown>[]>().notNull().default([]),
+  privacyMasks: jsonb("privacy_masks").$type<Record<string, unknown>[]>().notNull().default([]),
+  notifyEnabled: boolean("notify_enabled").notNull().default(false),
+  revision: integer("revision").notNull().default(1),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Danh mục tri thức/sản phẩm — shared trong tenant, soft delete qua deleted_at. */
+export const knowledgeItems = pgTable(
+  "knowledge_items",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "restrict" }),
+    scope: text("scope").notNull().default("camera"), // camera | location | workspace
+    cameraId: integer("camera_id").references(() => cameras.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    sku: text("sku"),
+    note: text("note"),
+    priceVnd: integer("price_vnd"), // integer VND — không float, không để LLM tính
+    currency: text("currency").notNull().default("VND"),
+    custom: jsonb("custom").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("knowledge_items_tenant_deleted_idx").on(t.tenantId, t.deletedAt),
+    index("knowledge_items_tenant_camera_idx").on(t.tenantId, t.cameraId),
+    check("knowledge_items_scope_chk", sql`${t.scope} in ('camera','location','workspace')`),
+  ]
+);
+
+/** Ảnh gắn vào mục — mỗi ảnh một ghi chú riêng; cùng asset ở nhiều item là hợp lệ (không dedup làm mất liên kết). */
+export const knowledgeImages = pgTable(
+  "knowledge_images",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "restrict" }),
+    itemId: bigint("item_id", { mode: "number" }).notNull().references(() => knowledgeItems.id, { onDelete: "cascade" }),
+    assetId: integer("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+    note: text("note"),
+    position: integer("position").notNull().default(0),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("knowledge_images_item_asset_uniq").on(t.itemId, t.assetId),
+    index("knowledge_images_item_idx").on(t.itemId),
+    index("knowledge_images_asset_idx").on(t.assetId),
+  ]
+);
+
+/** Lịch sử giá — ghi trong cùng transaction với update items.price_vnd. */
+export const knowledgePriceHistory = pgTable(
+  "knowledge_price_history",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "restrict" }),
+    itemId: bigint("item_id", { mode: "number" }).notNull().references(() => knowledgeItems.id, { onDelete: "cascade" }),
+    priceVnd: integer("price_vnd").notNull(),
+    effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [index("knowledge_price_history_item_idx").on(t.itemId)]
+);
