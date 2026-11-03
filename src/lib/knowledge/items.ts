@@ -5,7 +5,7 @@ import { HttpError } from "@/lib/http-guard";
 import { assetReadScope } from "@/lib/scope";
 import type { SessionPayload } from "@/lib/token";
 import { asObject, denied } from "./http";
-import { IDENTITY_FIELDS, mergeIdentity } from "./normalize";
+import { IDENTITY_FIELDS, mergeIdentity, normalizeGtin } from "./normalize";
 
 export const ITEM_SCOPES = ["camera", "location", "workspace"] as const;
 const active = () => isNull(knowledgeItems.deletedAt);
@@ -38,6 +38,11 @@ export function parsePrice(v: unknown): number {
 function identityInput(b: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const f of IDENTITY_FIELDS) if (f in b) out[f] = b[f];
+  // T-1362: không lưu mã vạch rác. Rỗng/null = xoá; còn lại phải đúng 8/12/13/14 số + số kiểm tra.
+  if ("gtin" in out && out.gtin !== null && out.gtin !== "") {
+    if (normalizeGtin(out.gtin) === null)
+      throw new HttpError(400, "INVALID_GTIN", "Mã vạch không hợp lệ: cần 8/12/13/14 chữ số và đúng số kiểm tra.");
+  }
   return out;
 }
 
@@ -180,6 +185,11 @@ export async function updateImage(tenantId: number, imageId: number, body: unkno
     const position = Number(b.position);
     if (!Number.isSafeInteger(position) || position < 0) throw new HttpError(400, "INVALID_POSITION", "position phải là số nguyên ≥ 0.");
     set.position = position;
+  }
+  // T-1362: ảnh của khách chỉ vào thư viện chung khi CHỦ ĐỘNG bật (mặc định false).
+  if ("shareToLibrary" in b) {
+    if (typeof b.shareToLibrary !== "boolean") throw new HttpError(400, "INVALID_SHARE", "shareToLibrary phải là true/false.");
+    set.shareToLibrary = b.shareToLibrary;
   }
   if (!Object.keys(set).length) throw new HttpError(400, "EMPTY_PATCH", "Không có thay đổi hợp lệ.");
   const [row] = await db.update(knowledgeImages).set(set)
