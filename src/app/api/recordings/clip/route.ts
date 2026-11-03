@@ -8,6 +8,7 @@ import { audit, problem } from "@/lib/audit";
 import { HttpError } from "@/lib/http-guard";
 import { denied, queryCameraId, withTenant } from "@/lib/knowledge/http";
 import { findRecordingCamera, listSegments, recordingsDir, recordingKeysFor } from "@/lib/recordings";
+import { ffmpegStatus } from "@/lib/recordings/ffmpeg";
 import {
   buildClipArgs,
   buildConcatManifest,
@@ -93,6 +94,14 @@ export async function GET(req: Request) {
     const cam = await findRecordingCamera(tenantId, cameraId);
     if (!cam) return denied("camera", cameraId);
 
+    // ffmpeg là phụ thuộc runtime: thiếu binary ⇒ 503 nói rõ, không để client
+    // nhận 502 "Không xuất được clip" (dễ bị chẩn đoán nhầm là file hỏng).
+    const ff = await ffmpegStatus();
+    if (!ff.available) {
+      await audit("recording.clip_unavailable", { targetType: "camera", targetId: cameraId, detail: `path=${ff.path} err=${ff.error ?? "unknown"}` });
+      return problem(503, "Máy chủ chưa cài ffmpeg nên chưa xuất được clip.", ff.error ?? undefined);
+    }
+
     const lists = await Promise.all(recordingKeysFor(cam).map((k) => listSegments(k, from, to)));
     const picked = pickClipSegments(lists.flat(), range);
 
@@ -136,6 +145,13 @@ export async function GET(req: Request) {
       }
 
       const { code, stderr } = await runFfmpeg(args);
+      if (code === -1) {
+        // spawn thất bại (binary biến mất sau khi probe, hoặc thiếu quyền).
+        const detail = sanitizeStderr(stderr, usable.map((s) => s.path)) || "spawn failed";
+        await audit("recording.clip_unavailable", { targetType: "camera", targetId: cameraId, detail });
+        cleanup();
+        return problem(503, "Máy chủ chưa cài ffmpeg nên chưa xuất được clip.", detail);
+      }
       if (code !== 0) {
         const detail = sanitizeStderr(stderr, usable.map((s) => s.path)) || `ffmpeg exit ${code}`;
         await audit("recording.clip_failed", { targetType: "camera", targetId: cameraId, detail: `code=${code} ${detail}` });

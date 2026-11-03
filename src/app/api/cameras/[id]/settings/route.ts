@@ -8,6 +8,7 @@ import { HttpError, readJsonBody } from "@/lib/http-guard";
 import { asObject, withTenant } from "@/lib/knowledge/http";
 import { patchCameraSettings, requireCameraSettings, settingsView, type CameraSettingsRow } from "@/lib/knowledge/settings";
 import { listSegments, recordingKeysFor } from "@/lib/recordings";
+import { ffmpegStatus } from "@/lib/recordings/ffmpeg";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -55,12 +56,18 @@ async function anySegmentOnDisk(cam: CamBasics | null): Promise<boolean> {
  */
 async function capabilities(cam: CamBasics | null, row: CameraSettingsRow) {
   const streamName = cam?.streamName ?? `dai_cam_${row.cameraId}`;
-  const [rec, hasSegments] = await Promise.all([recorderState(streamName), anySegmentOnDisk(cam)]);
+  const [rec, hasSegments, ff] = await Promise.all([
+    recorderState(streamName),
+    anySegmentOnDisk(cam),
+    ffmpegStatus(),
+  ]);
   const playback = hasSegments || row.recordEnabled;
   const reason: Record<string, string> = { pricing: "Chưa có nhận diện sản phẩm" };
   if (!rec.reachable) reason.record = rec.error ? `Recorder không phản hồi (${rec.error})` : "Recorder mediaMTX chưa chạy";
   if (!playback) reason.playback = "Chưa có đoạn ghi nào";
-  return { live: true, playback, snapshot: true, record: rec.reachable, audio: rec.audio, ask: true, pricing: false, reason };
+  if (!ff.available) reason.clip = "Máy chủ chưa cài ffmpeg";
+  // clip = xuất clip cần ffmpeg trên máy chủ (T-1347) — UI tắt nút thay vì 502.
+  return { live: true, playback, snapshot: true, record: rec.reachable, audio: rec.audio, ask: true, pricing: false, clip: ff.available, reason };
 }
 
 /** GET — bộ cài đặt riêng của camera (lazy-create mặc định nếu chưa có) + capabilities do server tính. */
