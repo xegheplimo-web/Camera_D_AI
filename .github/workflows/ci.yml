@@ -88,6 +88,8 @@ jobs:
         run: npm run test:google
       - name: Rate-limit + HTTP contract tests
         run: npm run test:rl-http
+      - name: Camera health probe tests (T-1319)
+        run: npm run test:t1319
 
   security:
     name: Security scans (gitleaks + semgrep + trivy)
