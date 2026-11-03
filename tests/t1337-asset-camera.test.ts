@@ -1,6 +1,7 @@
 import "dotenv/config";
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
+import { freePort, loginUser, makeCall, wait, type Call } from "./helpers/http";
 import { createServer, type Server } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync } from "node:crypto";
@@ -43,27 +44,13 @@ let ownerSession: SessionPayload;
 let logs = "";
 const state = { down: false, calls: 0 };
 const realFetch = globalThis.fetch;
+const call: Call = makeCall(() => base, () => realFetch);
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function freePort() { const s = createServer(); await new Promise<void>((r) => s.listen(0, "127.0.0.1", r)); const n = (s.address() as { port: number }).port; await new Promise<void>((r) => s.close(() => r())); return n; }
-async function call(path: string, method = "GET", body?: unknown, cookie = "", headers: Record<string, string> = {}) {
-  const response = await realFetch(base + path, {
-    method,
-    headers: { ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    redirect: "manual",
-  });
-  const raw = await response.text();
-  let data: any; try { data = JSON.parse(raw); } catch { data = { raw: raw.slice(0, 300) }; }
-  return { status: response.status, data, headers: response.headers };
-}
 const owner = () => cookies.owner;
 const viewer = () => cookies.viewer;
 const t2owner = () => cookies.t2owner;
 async function login(who: string) {
-  const r = await call("/api/auth/login", "POST", { login: `${prefix}_${who}`, password });
-  assert.equal(r.status, 200, JSON.stringify(r.data));
-  cookies[who] = r.headers.get("set-cookie")!.split(";")[0];
+  cookies[who] = await loginUser(call, prefix, password, who);
 }
 async function jpeg(seed: number) {
   const buf = await sharp({ create: { width: 96, height: 64, channels: 3, background: { r: (seed * 37) % 250, g: (seed * 91) % 250, b: (seed * 53) % 250 } } }).jpeg().toBuffer();
