@@ -18,10 +18,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { assets, cameras, events } from "@/db/schema";
 import { getSettings } from "@/lib/settings";
+import { DetectorLease } from "@/lib/camera/detector-lease";
 import { go2rtcBase } from "@/lib/camera/stream";
 
 /* ---------------- cấu hình ---------------- */
@@ -193,17 +194,37 @@ export async function recordDetection(
 ): Promise<{ eventId: number; assetId: number; duplicate: boolean }> {
   const sha = sha256hex(jpeg);
   const idem = `detect-${cam.id}-${sha.slice(0, 24)}`;
-  const [dupe] = await db
-    .select({ id: events.id, assetId: events.assetId })
-    .from(events)
-    .where(eq(events.idempotencyKey, idem))
-    .limit(1);
-  if (dupe) return { eventId: dupe.id, assetId: dupe.assetId ?? 0, duplicate: true };
-
   const assetId = await ensureDetectAsset(jpeg, sha, cam.id);
-  const [row] = await db
-    .insert(events)
-    .values({
+  const cfg = detectorConfig();
+
+  // T-1346: cooldown do DB quyết (advisory xact lock theo camera + kiểm tra
+  // khoảng lặng). Hai process cùng chạy vẫn chỉ tạo 1 event/cooldown, kể cả
+  // khi lock process bị mất giữa đường (fencing ở tầng dữ liệu).
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(47002, ${cam.id})`);
+    const [dupe] = await tx
+      .select({ id: events.id, assetId: events.assetId })
+      .from(events)
+      .where(eq(events.idempotencyKey, idem))
+      .limit(1);
+    if (dupe) return { eventId: dupe.id, assetId: dupe.assetId ?? 0, duplicate: true };
+
+    const [recent] = await tx
+      .select({ id: events.id, assetId: events.assetId })
+      .from(events)
+      .where(
+        and(
+          eq(events.cameraId, cam.id),
+          eq(events.createdBy, "detector"),
+          gt(events.happenedAt, new Date(Date.now() - cfg.cooldownMs)),
+        ),
+      )
+      .limit(1);
+    if (recent) return { eventId: recent.id, assetId: recent.assetId ?? 0, duplicate: true };
+
+    const [row] = await tx
+      .insert(events)
+      .values({
       cameraId: cam.id,
       type: "motion",
       label: `Phát hiện chuyển động tại ${cam.name} – ${cam.location}`,
@@ -215,9 +236,10 @@ export async function recordDetection(
       source: "live",
       clientReported: false,
       createdBy: "detector",
-    })
-    .returning({ id: events.id });
-  return { eventId: row.id, assetId, duplicate: false };
+      })
+      .returning({ id: events.id });
+    return { eventId: row.id, assetId, duplicate: false };
+  });
 }
 
 /* ---------------- quyết định mỗi frame ---------------- */
@@ -290,6 +312,9 @@ const state: DetectorState = (globalForDetector.__daiDetector ??= {
   cams: new Map(),
 });
 
+/** T-1346: một process giữ lock camera, process khác standby (không gọi go2rtc). */
+const lease = new DetectorLease();
+
 /** Mốc event detector gần nhất của camera trong DB — để cooldown sống qua restart process. */
 async function lastDetectorEventAt(cameraId: number): Promise<number | undefined> {
   const [row] = await db
@@ -324,10 +349,13 @@ async function tick() {
       .select({ id: cameras.id, name: cameras.name, location: cameras.location, streamName: cameras.streamName })
       .from(cameras)
       .where(and(eq(cameras.enabled, true), eq(cameras.sourceType, "rtsp"), isNotNull(cameras.streamName)));
+    // T-1346: chỉ xử lý camera mà process này giữ lease; instance thứ hai standby.
+    await lease.ensure(rows.map((r) => r.id));
     const liveIds = new Set(rows.map((r) => r.id));
     for (const id of state.cams.keys()) if (!liveIds.has(id)) state.cams.delete(id); // không giữ frame rác của camera đã gỡ
     for (const cam of rows) {
       if (!cam.streamName) continue;
+      if (!lease.owns(cam.id)) continue; // standby: không fetch frame, không tạo event
       const cs = state.cams.get(cam.id) ?? { frames: 0, events: 0 };
       state.cams.set(cam.id, cs);
       if (!settings.detectEnabled) {
@@ -376,6 +404,20 @@ export function stopDetector(): void {
   if (state.timer) clearInterval(state.timer);
   state.timer = null;
   state.running = false;
+  void lease.close();
+}
+
+/** Đọc objid đang giữ advisory lock 47001 — nguồn sự thật nằm ở Postgres, không ở RAM. */
+async function readClusterLocks(): Promise<number[]> {
+  try {
+    const res = (await db.execute<{ objid: number }>(
+      sql`select objid from pg_locks where locktype = 'advisory' and classid = 47001 and granted`,
+    )) as unknown;
+    const rows = Array.isArray(res) ? (res as { objid: number }[]) : ((res as { rows?: { objid: number }[] }).rows ?? []);
+    return rows.map((x) => Number(x.objid)).sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
 }
 
 export async function detectorStatus() {
@@ -384,9 +426,21 @@ export async function detectorStatus() {
     .select({ c: sql<number>`count(*)::int` })
     .from(events)
     .where(and(eq(events.source, "live"), eq(events.createdBy, "detector")));
+  // Nguồn sự thật của quyền sở hữu là Postgres, không phải RAM: trong production
+  // build, module state của route handler có thể là bản khác bản instrumentation
+  // đang chạy tick, nên `lease.status` chỉ mang tính chẩn đoán nội bộ.
+  const clusterLocks = await readClusterLocks();
+  const standbyCameras = await db
+    .select({ id: cameras.id })
+    .from(cameras)
+    .where(and(eq(cameras.enabled, true), eq(cameras.sourceType, "rtsp"), isNotNull(cameras.streamName)))
+    .then((rs) => rs.map((x) => x.id).filter((id) => !clusterLocks.includes(id)));
   return {
     running: state.running,
     envEnabled: cfg.envEnabled,
+    lease: { clusterLocks, ownerCount: new Set(clusterLocks).size },
+    leaseProcess: lease.status, // chỉ để chẩn đoán; có thể trống ở bản build này
+    standbyCameras,
     settingEnabled: state.settingEnabled,
     intervalMs: cfg.intervalMs,
     threshold: cfg.threshold,
