@@ -434,6 +434,30 @@ export const productEmbeddings = pgTable(
   ]
 );
 
+/** T-1365: lịch sử sửa nhận diện — append-only, không ghi đè. */
+export const productCorrections = pgTable(
+  "product_corrections",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "restrict" }),
+    itemId: bigint("item_id", { mode: "number" }).notNull(),
+    predictedItemId: bigint("predicted_item_id", { mode: "number" }),
+    imageId: bigint("image_id", { mode: "number" }),
+    assetId: integer("asset_id"),
+    score: real("score"),
+    scoreSecond: real("score_second"),
+    margin: real("margin"),
+    source: text("source").notNull().default("user"),
+    note: text("note"),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("product_corrections_tenant_idx").on(t.tenantId, t.createdAt),
+    index("product_corrections_item_idx").on(t.tenantId, t.itemId),
+  ]
+);
+
 export const knowledgePairDecisions = pgTable(
   "knowledge_pair_decisions",
   {
