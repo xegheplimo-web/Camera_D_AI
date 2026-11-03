@@ -291,7 +291,7 @@ function closureOf(info) {
 // ---------- matrix ----------
 function statusOf(hasCaller, route) {
   if (hasCaller) return "IMPLEMENTED_UNVERIFIED";
-  const internal = /^(?:\/api\/(?:internal|health)|auth\/google\/callback)/.test(route);
+  const internal = /^(?:\/api\/(?:internal|health)|\/api\/auth\/google\/callback)/.test(route);
   return internal ? "INTERNAL" : "MISSING_CONSUMER";
 }
 
