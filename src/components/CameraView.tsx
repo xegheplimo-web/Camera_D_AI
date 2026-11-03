@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Camera as CamIcon, Maximize2, ScanEye, Circle, Square, Star, NotebookPen, Video, VideoOff, ArrowLeftRight, Loader2, RefreshCw } from "lucide-react";
 import { api, drawToCanvas, uploadDataUrl, blobToDataUrl, getDetector } from "@/lib/client";
+import { streamBadge } from "@/lib/camera/status";
 import { vi } from "@/lib/labels";
 import { useApp } from "./AppState";
 
@@ -18,8 +19,9 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
   const router = useRouter();
   const { setMood } = useApp();
   useEffect(() => {
-    if (cam.status === "offline") setMood("alert");
-  }, [cam.status, setMood]);
+    // Webcam/demo không có pipeline phía máy chủ — status DB của chúng không mang nghĩa "mất kết nối".
+    if (cam.status === "offline" && cam.sourceType === "rtsp") setMood("alert");
+  }, [cam.status, cam.sourceType, setMood]);
   const wrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -410,7 +412,7 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
           </span>
           <span className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold ${streamState === "live" ? "bg-emerald-500/80" : streamState === "lost" ? "bg-rose-500/80" : "bg-slate-600/80"}`}>
             <span className={`h-1.5 w-1.5 rounded-full bg-white ${streamState === "live" ? "live-dot" : ""}`} />
-            {streamState === "live" ? "Trực tiếp" : streamState === "connecting" ? "Đang kết nối…" : streamState === "lost" ? "Mất kết nối camera" : isWebcam ? "Webcam chưa bật" : isRtsp ? "Camera IP chưa có hình" : "Nguồn mô phỏng"}
+            {streamBadge(cam.sourceType, streamState)}
           </span>
           {streamState === "lost" && (
             <button onClick={isRtsp ? reconnectIp : startWebcam} className="rounded-lg bg-white/90 px-2 py-1 text-xs font-semibold text-slate-900">Kết nối lại</button>
@@ -466,8 +468,8 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
           </div>}
           <div className="flex flex-wrap gap-2">
             <button onClick={() => snapshot(false)} disabled={busy} className="btn btn-ghost"><CamIcon className="h-4 w-4" /> Chụp ảnh</button>
-            <button onClick={toggleRecord} disabled={!isWebcam || !live} title={isRtsp ? "RTSP cần Recorder phía máy chủ" : live ? "" : "Cần bật webcam"} className={`btn ${recording ? "btn-danger" : "btn-ghost"}`}>
-              {recording ? <Square className="h-4 w-4" /> : <Circle className="h-4 w-4 text-red-400" />} {recording ? "Dừng ghi" : "Ghi clip"}
+            <button onClick={toggleRecord} disabled={!isWebcam || !live} title={isWebcam ? (live ? "" : "Cần bật webcam") : "Cần bật ghi hình trên máy chủ"} className={`btn ${recording ? "btn-danger" : "btn-ghost"}`}>
+              {recording ? <Square className="h-4 w-4" /> : <Circle className="h-4 w-4 text-red-400" />} {recording ? "Dừng ghi" : isWebcam ? "Ghi clip" : "Ghi clip (sắp có)"}
             </button>
             <button onClick={() => snapshot(true)} disabled={busy} className="btn btn-ghost"><Star className="h-4 w-4 text-amber-300" /> Đánh dấu quan trọng</button>
             <button onClick={noteFromFrame} disabled={busy} className="btn btn-ghost"><NotebookPen className="h-4 w-4 text-cyan-300" /> Tạo ghi chú từ khung hình</button>

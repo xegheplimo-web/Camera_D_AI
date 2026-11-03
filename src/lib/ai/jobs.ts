@@ -6,6 +6,7 @@ import { assetReadScope, authorizeResource } from "@/lib/scope";
 import type { SessionPayload } from "@/lib/token";
 import { AiError, errorInfo, TERMINAL, type JobInput, type JobKind, type JobResult, type JobView, type Step, type ToolName } from "./types";
 import { requiredTools } from "./routing";
+import { answerBasedOnDemo } from "@/lib/chat-demo";
 import { hermesPlan } from "./hermes";
 import { summaryWorker, evidenceWorker, buildReport, type MemorySummary } from "./memory-worker";
 import { imageWorker, assetImage, mergeImageResults } from "./vision-worker";
@@ -196,6 +197,7 @@ export async function runJob(id: string) {
       if (!summary) throw new AiError("MEMORY_UNAVAILABLE", "Không truy xuất được số liệu nguồn. Không tạo báo cáo không có căn cứ.");
       result.answer = buildReport(summary, evidence, fallbackReason, requester.role);
       result.answer.warnings.push(...failures);
+      result.answer.basedOnDemo = job.input.demoMode || answerBasedOnDemo(result.answer);
       result.answer.execution = { path: route, jobId: job.id, durationMs: Date.now() - started, reason: route === "hermes" ? "Trợ lý AI chọn công cụ; số liệu và bằng chứng do Trí nhớ/SQL cung cấp." : "Dịch vụ AI dự phòng: chỉ tổng hợp dữ liệu đã lưu, không phân tích video." };
     } else {
       extractionResult = mergeImageResults(vision, ocr);

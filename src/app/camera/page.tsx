@@ -7,6 +7,7 @@ import CameraDiscovery, { type DiscoveryControls } from "@/components/CameraDisc
 import EventDetail from "@/components/EventDetail";
 import { Card, EventRow, type EventItem, EventBadge } from "@/components/ui";
 import { api, getDeviceId } from "@/lib/client";
+import { listStatus } from "@/lib/camera/status";
 
 type DashCam = Cam & { today: number; recent5m: number };
 
@@ -22,10 +23,21 @@ export default function CameraPage() {
   const discovery = useRef<DiscoveryControls | null>(null);
   const registerDiscovery = useCallback((c: DiscoveryControls | null) => { discovery.current = c; }, []);
 
+  const selectCam = useCallback((id: number | null) => {
+    setCamId(id);
+    // Trang /extract đọc camera đã chọn để "Chụp ảnh" lấy đúng khung hình.
+    if (id) window.localStorage.setItem("dai_cam_id", String(id));
+  }, []);
+
   const load = useCallback(async () => {
     const d = await api<{ cameras: DashCam[] }>("/api/dashboard");
     setCams(d.cameras);
-    setCamId((c) => c ?? d.cameras[0]?.id ?? null);
+    setCamId((c) => {
+      const stored = Number(window.localStorage.getItem("dai_cam_id"));
+      const pick = c ?? (d.cameras.some((x) => x.id === stored) ? stored : d.cameras[0]?.id) ?? null;
+      if (pick) window.localStorage.setItem("dai_cam_id", String(pick));
+      return pick;
+    });
   }, []);
 
   useEffect(() => {
@@ -60,7 +72,7 @@ export default function CameraPage() {
 
   const onCameraAdded = (id?: number) => {
     void load();
-    if (id) setCamId(id);
+    if (id) selectCam(id);
   };
 
   const createManual = async () => {
@@ -92,7 +104,7 @@ export default function CameraPage() {
       <div className="space-y-3 xl:col-span-8">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold">Camera & Quan sát</h1>
-          <select value={camId ?? ""} onChange={(e) => setCamId(Number(e.target.value))} className="input w-auto" aria-label="Chọn camera">
+          <select value={camId ?? ""} onChange={(e) => selectCam(Number(e.target.value))} className="input w-auto" aria-label="Chọn camera">
             {cams.map((c) => <option key={c.id} value={c.id}>{c.name} – {c.location}</option>)}
           </select>
         </div>
@@ -118,8 +130,8 @@ export default function CameraPage() {
       <div className="space-y-4 xl:col-span-4">
         <Card title="Danh sách camera">
           <div className="space-y-2">
-            {cams.map((c) => (
-              <button key={c.id} onClick={() => setCamId(c.id)} className={`flex w-full items-center gap-3 rounded-xl border p-2 text-left ${c.id === camId ? "border-cyan-400/60 bg-cyan-500/10" : "border-white/10 hover:bg-white/5"}`}>
+            {cams.map((c) => { const st = listStatus(c); return (
+              <button key={c.id} onClick={() => selectCam(c.id)} className={`flex w-full items-center gap-3 rounded-xl border p-2 text-left ${c.id === camId ? "border-cyan-400/60 bg-cyan-500/10" : "border-white/10 hover:bg-white/5"}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={c.thumbnail ?? ""} alt="" className="h-12 w-20 rounded-lg object-cover" />
                 <div className="min-w-0 flex-1">
@@ -127,13 +139,13 @@ export default function CameraPage() {
                   <div className="text-xs text-slate-400">{c.location} · {c.sourceType === "webcam" ? "Webcam" : c.sourceType === "rtsp" ? `IP/RTSP${c.sourceHost ? ` · ${c.sourceHost}` : ""}` : "Mô phỏng"}</div>
                 </div>
                 <div className="text-right text-[11px]">
-                  <div className={`flex items-center justify-end gap-1 ${c.sourceType === "rtsp" ? (c.streamName ? "text-emerald-300" : "text-amber-300") : c.status === "online" ? "text-emerald-300" : "text-slate-400"}`}>
-                    <Wifi className="h-3 w-3" /> {c.sourceType === "rtsp" ? (c.streamName ? "Đã đăng ký" : "Chưa kết nối") : c.status === "online" ? "Online" : "Offline"}
+                  <div className={`flex items-center justify-end gap-1 ${st.tone === "ok" ? "text-emerald-300" : st.tone === "warn" ? "text-amber-300" : "text-slate-400"}`}>
+                    <Wifi className="h-3 w-3" /> {st.label}
                   </div>
                   <div className="text-slate-400">{c.today} hôm nay</div>
                 </div>
               </button>
-            ))}
+            ); })}
             {!cams.some((c) => c.sourceType !== "demo") && (
               <div className="rounded-xl border border-dashed border-cyan-400/30 bg-cyan-500/5 p-3 text-center">
                 <p className="text-xs text-slate-300">Chưa có camera thật — danh sách trên chỉ là nguồn mô phỏng.</p>

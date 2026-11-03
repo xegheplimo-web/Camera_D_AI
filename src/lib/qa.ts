@@ -139,6 +139,7 @@ export async function answerQuestion(question: string, session: SessionPayload):
     a.evidence = recent.map((r) => ({ extractionId: r.id, label: r.title, time: fmtDateTime(r.createdAt), thumb: tm.get(r.assetId) ?? null }));
     a.evidenceCount = a.evidence.length;
     a.nextActions = [{ label: "Mở Trí nhớ", href: "/memory?tab=notes" }, { label: "Trích xuất ảnh mới", href: "/extract" }];
+    a.basedOnDemo = demoMode;
     return a;
   }
 
@@ -161,6 +162,7 @@ export async function answerQuestion(question: string, session: SessionPayload):
       const a = base(`Chưa tìm thấy dữ liệu khớp với “${terms.join(" ")}”${range.explicit ? ` trong ${range.label}` : ""}.`, "INSUFFICIENT_DATA");
       a.details = ["Thử từ khóa ngắn hơn (ví dụ: “xe máy”, “cảnh báo”, “kho”).", "Nếu cần trích xuất biển số/văn bản, hãy chụp ảnh và dùng màn Ảnh & Trích xuất."];
       a.nextActions = [{ label: "Mở Trí nhớ", href: "/memory" }, { label: "Trích xuất ảnh", href: "/extract" }];
+      a.basedOnDemo = demoMode;
       return a;
     }
     const a = base(`Tìm thấy ${c} sự kiện${exRows.length ? ` và ${exRows.length} ghi chú trích xuất` : ""} khớp “${terms.join(" ")}”${range.explicit ? ` (${range.label})` : ""}.`, "SEARCH");
@@ -174,6 +176,7 @@ export async function answerQuestion(question: string, session: SessionPayload):
     a.evidenceCount = c + exRows.length;
     a.calculation = { aggregation: "FULL_TEXT_MATCH", terms, range: range.explicit ? [range.start.toISOString(), range.end.toISOString()] : "toàn bộ" };
     a.nextActions = [{ label: "Xem tất cả trong Trí nhớ", href: memoryLink({ q: terms.join(" ") }) }];
+    a.basedOnDemo = demoMode;
     return a;
   }
 
@@ -189,6 +192,7 @@ export async function answerQuestion(question: string, session: SessionPayload):
     a.details = ["Có thể camera chưa bật, đang offline hoặc khoảng thời gian nằm ngoài lịch sử lưu trữ.", "Mình không đoán số khi không có dữ liệu nguồn."];
     a.nextActions = [{ label: "Kiểm tra camera", href: "/camera" }];
     a.calculation = { aggregation: "COUNT", table: "events", range: [range.start.toISOString(), range.end.toISOString()], result: "no_rows" };
+    a.basedOnDemo = demoMode;
     return a;
   }
 
@@ -203,6 +207,7 @@ export async function answerQuestion(question: string, session: SessionPayload):
     a.warnings = ["Đây là ước lượng từ chênh lệch vào/ra, không phải số người duy nhất. Nếu có lối đi khác hoặc đếm sót, kết quả có thể lệch."];
     a.calculation = { aggregation: "COUNT(in) - COUNT(out)", table: "events", range: [range.start.toISOString(), range.end.toISOString()], timezone: TZ };
     a.nextActions = [{ label: "Xem camera trực tiếp", href: "/camera" }];
+    a.basedOnDemo = demoMode;
     return a;
   }
 
@@ -269,6 +274,7 @@ export async function answerQuestion(question: string, session: SessionPayload):
   if (!demoMode) a.details.push("Chế độ thực: đã loại trừ toàn bộ dữ liệu mẫu.");
   const demo = await db.select({ c: sql<number>`count(*)::int` }).from(events).where(and(where, eq(events.source, "demo")));
   if (demo[0].c > 0) a.warnings.push(`${demo[0].c}/${total} bản ghi là dữ liệu mẫu (demo). Có thể xóa trong Cài đặt.`);
+  a.basedOnDemo = demoMode || demo[0].c > 0;
 
   a.nextActions = [
     { label: "Xem bằng chứng trong Trí nhớ", href: memoryLink({ type: metric.types[0], from: range.start.toISOString(), to: range.end.toISOString(), camera: cam?.id }) },
