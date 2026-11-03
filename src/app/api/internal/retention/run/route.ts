@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { db } from "@/db";
 import { runRetention, unlinkPending } from "@/lib/retention";
+import { runVideoRetention } from "@/lib/recordings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -16,5 +17,8 @@ export async function POST(req: Request) {
   const report = await db.transaction(async (tx) => runRetention(tx));
   // Xoá file SAU commit: rollback không được làm mất ảnh còn tham chiếu.
   await unlinkPending(report.pendingFiles);
-  return Response.json(report);
+  // Retention video mediaMTX (đĩa, không rollback được) — sau cùng: theo
+  // camera_settings.retention_days → cameras.retention_days → global.
+  const recordings = await runVideoRetention();
+  return Response.json({ ...report, recordings });
 }

@@ -21,6 +21,11 @@ type Admin = {
   me: { name: string; role: string };
 };
 type Settings = { demoMode: boolean; retentionDays: number; remotePlayback: boolean; requireVerifiedForAnswers: boolean; detectEnabled: boolean };
+type RecStorage = { freeBytes: number | null; totalBytes: number; cameras: { key: string; segments: number; bytes: number }[] };
+
+function fmtBytes(b: number): string {
+  return b >= 1 << 30 ? `${(b / 2 ** 30).toFixed(1)} GB` : `${(b / 2 ** 20).toFixed(1)} MB`;
+}
 
 export default function SettingsPage() {
   const { voiceOut, setVoiceOut, rate, setRate, speak, hasViVoice } = useApp();
@@ -35,6 +40,8 @@ export default function SettingsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [demoConfirm, setDemoConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [recStorage, setRecStorage] = useState<RecStorage | null>(null);
+  const [recDays, setRecDays] = useState("7");
 
   const load = useCallback(() => {
     api<Cam[]>("/api/cameras").then(setCams).catch(() => {});
@@ -43,6 +50,7 @@ export default function SettingsPage() {
       if (r.role === "owner" || r.role === "operator") api<Admin>("/api/admin").then(setAdmin).catch(() => setAdmin(null));
       else setAdmin(null);
     }).catch(() => {});
+    api<{ storage: RecStorage }>("/api/recordings").then((r) => setRecStorage(r.storage)).catch(() => setRecStorage(null));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -296,6 +304,41 @@ export default function SettingsPage() {
               <input type="number" min={1} max={365} disabled={!canManage} value={settings?.retentionDays ?? 30} onChange={(e) => patchSettings({ retentionDays: Number(e.target.value) })} className="input mt-1" />
               <span className="mt-1 block text-[11px] text-emerald-200">Đã có hiệu lực: job retention chạy lúc khởi động và lặp mỗi 24h — xoá sự kiện/trích xuất/ảnh quá hạn (riêng camera có thể override trong mục Camera).</span>
             </label>
+            {recStorage && (
+              <div className="rounded-xl border border-white/10 p-2 text-xs text-[#a9bad2]">
+                <b className="text-white">Bản ghi video:</b> {fmtBytes(recStorage.totalBytes)} trên {recStorage.cameras.length} nguồn
+                {recStorage.freeBytes !== null && <> · đĩa trống ≈{fmtBytes(recStorage.freeBytes)}</>}
+                {recStorage.cameras.length > 0 && (
+                  <ul className="mt-1 space-y-0.5">
+                    {recStorage.cameras.map((c) => (
+                      <li key={c.key} className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate font-mono">{c.key}</span>
+                        <span className="shrink-0">{c.segments} đoạn · {fmtBytes(c.bytes)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {isOwner && recStorage.cameras.length > 0 && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <span>Xoá bản ghi cũ hơn</span>
+                    <input type="number" min={1} max={365} value={recDays} onChange={(e) => setRecDays(e.target.value)} className="input w-16 py-0.5" aria-label="Số ngày giữ lại" />
+                    <span>ngày</span>
+                    <button onClick={async () => {
+                      const n = Number(recDays);
+                      if (!Number.isSafeInteger(n) || n < 1 || n > 365) return setErr("Số ngày phải là số nguyên 1–365.");
+                      if (!confirm(`Xoá vĩnh viễn mọi bản ghi video cũ hơn ${n} ngày? Hành động không thể hoàn tác.`)) return;
+                      setErr(null); setBusy(true);
+                      try {
+                        const r = await api<{ deleted: number; bytes: number }>(`/api/recordings?olderThanDays=${n}`, { method: "DELETE" });
+                        setMsg(`Đã xoá ${r.deleted} đoạn bản ghi (${fmtBytes(r.bytes)}). Nhật ký đã ghi lại.`);
+                        load();
+                      } catch (e) { setErr(e instanceof Error ? e.message : "Không xoá được bản ghi"); }
+                      finally { setBusy(false); }
+                    }} disabled={busy} className="btn btn-ghost py-1"><Trash2 className="h-3.5 w-3.5" /> Xoá</button>
+                  </div>
+                )}
+              </div>
+            )}
             <p className="text-xs text-[#a9bad2]">Sự kiện mẫu: <b>{admin?.demoEvents ?? "–"}</b> · Sự kiện thật: <b>{admin?.liveEvents ?? "–"}</b></p>
             <div className="flex flex-wrap gap-2">
               <a href="/api/report?days=30" className="btn btn-ghost">Xuất CSV 30 ngày</a>

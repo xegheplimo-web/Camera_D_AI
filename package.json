@@ -21,6 +21,7 @@
     "test:t1330": "node --import tsx --test --test-concurrency=1 tests/t1330-egress.test.ts tests/t1330-router.test.ts",
     "test:t1335": "node --import tsx --test tests/t1335-knowledge.test.ts",
     "test:t1337": "node --import tsx --test tests/t1337-asset-camera.test.ts",
+    "test:t1323": "node --import tsx --test tests/t1323-recordings.test.ts",
     "test:t1338": "node --import tsx --test tests/t1338-retention-knowledge.test.ts",
     "test:t1336": "node --import tsx --test tests/t1336-ux.test.ts",
     "db:push:dev": "drizzle-kit push"
