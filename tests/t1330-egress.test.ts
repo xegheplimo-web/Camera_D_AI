@@ -131,3 +131,19 @@ test("serviceStatus() trả egress đúng cho UI: khai báo local vs mặc đị
   assert.equal(vision?.egress, "remote");
   assert.equal(vision?.remote, true);
 });
+
+test("bridge loopback không cần API key ở phía app; consent vẫn chặn theo egress", async () => {
+  // Thực tế .env.local: DAI_VISION_BASE_URL=127.0.0.1:8791, KHÔNG có DAI_VISION_API_KEY.
+  // Thiếu key không được biến thành MISSING_API_KEY; nhưng egress=remote vẫn phải qua consent.
+  process.env.DAI_VISION_BASE_URL = "http://127.0.0.1:8791";
+  process.env.DAI_VISION_MODEL = "glm-5.3-flash";
+  delete process.env.DAI_VISION_API_KEY;
+  delete process.env.DAI_VISION_EGRESS;
+  const c = serviceConfig("vision");
+  assert.equal(c?.egress, "remote");
+  assert.equal(c?.remote, true);
+  assert.equal(c?.key, "");
+  stubFetch();
+  assert.equal(await codeOf(serviceFetch("vision", "chat/completions")), "CONSENT_REQUIRED");
+  assert.equal(fetchCalls, 0, "chưa consent thì không được gọi bridge");
+});

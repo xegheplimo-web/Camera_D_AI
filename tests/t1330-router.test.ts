@@ -6,7 +6,7 @@ import { desc, eq, like } from "drizzle-orm";
 import { db, pool } from "../src/db";
 import { aiServices, auditLog } from "../src/db/schema";
 import { routeQuestion } from "../src/lib/ai/routing";
-import { PROFILES, adapterState, markProfile, pickAdapter, profileOpen, resolveProfile, type TaskType } from "../src/lib/ai/orchestrator";
+import { PROFILES, adapterState, markProfile, pickAdapter, profileAvailable, resolveProfile, type TaskType } from "../src/lib/ai/orchestrator";
 import { recordRoute } from "../src/lib/ai/telemetry";
 import { gpuSlots, withGpuSlot } from "../src/lib/ai/gpu";
 
@@ -83,7 +83,7 @@ test("registry khớp bảng thiết kế: adapter + timeout của từng profil
 
 test("adapterState: adapter local sẵn sàng, adapter chưa cấu hình/lạ → not_configured", async () => {
   assert.equal(await adapterState("sql"), "ready");
-  assert.equal(await adapterState("video-search"), "ready");
+  assert.equal(await adapterState("video-search"), "not_configured"); // chưa có handler → không ready
   assert.equal(await adapterState("không-có"), "not_configured");
   const old = process.env.HERMES_BASE_URL;
   delete process.env.HERMES_BASE_URL;
@@ -96,13 +96,13 @@ test("breaker theo profile: lỗi 1 profile mở cooldown, profile khác không 
   const [row] = await db.select().from(aiServices).where(eq(aiServices.name, "profile:ocr.read")).limit(1);
   assert.ok(row, "ai_services phải có dòng profile:ocr.read");
   assert.ok(row.cooldownUntil && row.cooldownUntil > new Date(), "cooldown_until > now sau khi lỗi");
-  assert.equal(await profileOpen("ocr.read"), false);
-  assert.equal(await profileOpen("video.search"), true, "profile khác không được khoá theo");
+  assert.equal(await profileAvailable("ocr.read"), false);
+  assert.equal(await profileAvailable("video.search"), true, "profile khác không được khoá theo");
   const other = await pickAdapter("video.search");
   assert.equal(other.profile.adapter, "video-search");
-  assert.equal(other.state, "ready");
+  assert.equal(other.state, "not_configured");
   await markProfile("ocr.read", true, 50);
-  assert.equal(await profileOpen("ocr.read"), true, "lần gọi tốt đóng breaker lại");
+  assert.equal(await profileAvailable("ocr.read"), true, "lần gọi tốt đóng breaker lại");
 });
 
 test("telemetry ai.route: ghi audit_log, JSON gọn không chứa prompt/ảnh", async () => {

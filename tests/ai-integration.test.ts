@@ -102,10 +102,10 @@ before(async () => {
   const root = `http://127.0.0.1:${(fixture.address() as { port: number }).port}`;
   const appPort = await port(); base = `http://localhost:${appPort}`;
   app = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-p", String(appPort)], { env: { ...process.env,
-    HERMES_BASE_URL: `${root}/hermes/v1`, HERMES_API_KEY: serviceKey,
-    DAI_VISION_BASE_URL: `${root}/vision/v1`, DAI_VISION_MODEL: "contract-vision", DAI_VISION_API_KEY: serviceKey,
-    DAI_OCR_BASE_URL: `${root}/ocr/v1`, DAI_OCR_MODEL: "contract-ocr", DAI_OCR_API_KEY: serviceKey,
-    DAI_VOICE_BASE_URL: `${root}/voice/v1`, DAI_VOICE_STT_MODEL: "contract-stt", DAI_VOICE_TTS_MODEL: "contract-tts", DAI_VOICE_API_KEY: serviceKey,
+    HERMES_BASE_URL: `${root}/hermes/v1`, HERMES_API_KEY: serviceKey, HERMES_EGRESS: "local",
+    DAI_VISION_BASE_URL: `${root}/vision/v1`, DAI_VISION_MODEL: "contract-vision", DAI_VISION_API_KEY: serviceKey, DAI_VISION_EGRESS: "local",
+    DAI_OCR_BASE_URL: `${root}/ocr/v1`, DAI_OCR_MODEL: "contract-ocr", DAI_OCR_API_KEY: serviceKey, DAI_OCR_EGRESS: "local",
+    DAI_VOICE_BASE_URL: `${root}/voice/v1`, DAI_VOICE_STT_MODEL: "contract-stt", DAI_VOICE_TTS_MODEL: "contract-tts", DAI_VOICE_API_KEY: serviceKey, DAI_VOICE_EGRESS: "local",
     DAI_DISPATCH_TOKEN: dispatchKey, DAI_AI_TIMEOUT_MS: "1500", NODE_ENV: "production",
   }, stdio: ["ignore", "pipe", "pipe"] });
   app.stdout?.on("data", (s) => { logs = (logs + s).slice(-10000); });

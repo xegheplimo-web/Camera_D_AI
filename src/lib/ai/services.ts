@@ -35,7 +35,10 @@ export function serviceConfig(name: ServiceName): ServiceConfig | null {
   if (!path.endsWith("/v1")) path += "/v1";
   base.pathname = path + "/";
   const key = process.env[`${prefix}_API_KEY`]?.trim() ?? "";
-  if ((name === "hermes" || remote) && !key) throw new AiError("MISSING_API_KEY", `${SERVICE_LABELS[name]} chưa có API key phía máy chủ.`);
+  // Key là auth của hop vận chuyển: bắt buộc với hermes hoặc endpoint ngoài LAN.
+  // Một bridge loopback tự giữ key upstream — không bắt app phải có key (consent vẫn chặn theo egress).
+  const needsKey = name === "hermes" || outsideLan;
+  if (needsKey && !key) throw new AiError("MISSING_API_KEY", `${SERVICE_LABELS[name]} chưa có API key phía máy chủ.`);
   const model = process.env[`${prefix}_MODEL`]?.trim() ?? (name === "hermes" ? "hermes-agent" : "");
   if (name !== "hermes" && name !== "voice" && !model) throw new AiError("MISSING_MODEL", `${SERVICE_LABELS[name]} chưa cấu hình tên model.`);
   return { base, key, model, remote, egress };

@@ -50,7 +50,8 @@ const SERVICE_ADAPTERS: Record<string, ServiceName> = {
  */
 const LOCAL_READY: Record<string, () => boolean> = {
   sql: () => true,
-  "video-search": () => true, // bậc A: truy vấn SQL trên recordings/events/assets
+  // Chưa có handler truy xuất video (bậc A chưa triển khai) → không được báo ready.
+  "video-search": () => false,
   detector: () => !!process.env.DAI_LOCAL_DETECTOR,
   "embed-text": () => !!process.env.DAI_LOCAL_EMBED_TEXT,
   "embed-image": () => !!process.env.DAI_LOCAL_EMBED_IMAGE,
@@ -101,7 +102,8 @@ export async function markProfile(task: TaskType, ok: boolean, latencyMs: number
   } });
 }
 
-export async function profileOpen(task: TaskType): Promise<boolean> {
+/** true = profile đang dùng được (breaker đóng). Tên hàm phản ánh quyền được gọi. */
+export async function profileAvailable(task: TaskType): Promise<boolean> {
   const [row] = await db.select().from(aiServices).where(eq(aiServices.name, `profile:${task}`)).limit(1);
   return !(row?.cooldownUntil && row.cooldownUntil > new Date());
 }
