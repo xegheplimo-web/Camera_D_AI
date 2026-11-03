@@ -38,7 +38,8 @@
     "test:t1365": "node --import tsx --test tests/t1365-corrections.test.ts",
     "test:t1362": "node --import tsx --test tests/t1362-teach.test.ts",
     "test:t1347": "node --import tsx --test tests/t1347-ffmpeg.test.ts",
-    "db:push:dev": "drizzle-kit push"
+    "db:push:dev": "drizzle-kit push",
+    "audit:capability": "node scripts/audit/capability-audit.mjs"
   },
   "dependencies": {
     "@playwright/test": "^1.64.1",
