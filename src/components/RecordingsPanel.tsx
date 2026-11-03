@@ -8,7 +8,7 @@ import { Card } from "./ui";
 
 type Segment = { file: string; cameraKey: string; start: string; durationSec?: number; sizeBytes: number };
 type EvMarker = { id: number; type: string; at: string; label: string; assetId: number | null };
-type RecResponse = { segments: Segment[]; events?: EvMarker[] };
+type RecResponse = { segments: Segment[]; events?: EvMarker[]; clipAvailable?: boolean };
 
 const DAY_MS = 86_400_000;
 const MAX_CLIP_MS = 600_000;
@@ -42,6 +42,8 @@ export default function RecordingsPanel({ cameraId }: { cameraId: number }) {
   const [clipTo, setClipTo] = useState("");
   const [clipBusy, setClipBusy] = useState(false);
   const [clipErr, setClipErr] = useState<string | null>(null);
+  /** T-1347: xuất clip cần ffmpeg trên MÁY CHỦ — server báo trong /api/recordings, UI tắt nút thay vì 502. */
+  const [clipOk, setClipOk] = useState<boolean | null>(null);
   const tlRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export default function RecordingsPanel({ cameraId }: { cameraId: number }) {
     setPlaying(null);
     setEvents([]);
     api<RecResponse>(`/api/recordings?cameraId=${cameraId}`)
-      .then((r) => { if (!stop) setSegs(r.segments); })
+      .then((r) => { if (!stop) { setSegs(r.segments); setClipOk(r.clipAvailable !== false); } })
       .catch(() => { if (!stop) setSegs([]); });
     return () => { stop = true; };
   }, [cameraId]);
@@ -197,7 +199,13 @@ export default function RecordingsPanel({ cameraId }: { cameraId: number }) {
             </span>
           )}
           <span className="ml-auto flex gap-1">
-            <button onClick={() => (exportOpen ? setExportOpen(false) : openExport())} className="btn btn-ghost py-1 text-xs" aria-label="Xuất clip">
+            <button
+              onClick={() => (exportOpen ? setExportOpen(false) : openExport())}
+              className="btn btn-ghost py-1 text-xs disabled:opacity-40"
+              aria-label="Xuất clip"
+              disabled={clipOk === false}
+              title={clipOk === false ? "Máy chủ chưa cài ffmpeg" : undefined}
+            >
               <Scissors className="h-3.5 w-3.5" /> Xuất clip
             </button>
             {clipHref && (

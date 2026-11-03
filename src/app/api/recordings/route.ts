@@ -5,6 +5,7 @@ import { authorize } from "@/lib/auth-server";
 import { HttpError } from "@/lib/http-guard";
 import { denied, fail, queryCameraId, withTenant } from "@/lib/knowledge/http";
 import { tenantIdOf } from "@/lib/knowledge/tenant";
+import { ffmpegStatus } from "@/lib/recordings/ffmpeg";
 import {
   findRecordingCamera,
   globalRetentionDays,
@@ -44,7 +45,9 @@ export async function GET(req: Request) {
     const from = queryDate(u, "from");
     const to = queryDate(u, "to");
     const day = queryDay(u);
-    const storage = await storageStatus();
+    // T-1347: panel "Xem lại" cần biết máy chủ có ffmpeg để tắt nút xuất clip
+    // (probe có cache 60 s nên không phải spawn mỗi request).
+    const [storage, ff] = await Promise.all([storageStatus(), ffmpegStatus()]);
     let keys: string[] = [];
     let segments: Awaited<ReturnType<typeof listSegments>> = [];
     let dayEvents: { id: number; type: string; at: string; label: string; assetId: number | null }[] | undefined;
@@ -67,7 +70,7 @@ export async function GET(req: Request) {
     } else if (day) {
       dayEvents = [];
     }
-    return Response.json({ cameraId: cameraId ?? null, keys, segments, storage, ...(dayEvents !== undefined ? { events: dayEvents } : {}) });
+    return Response.json({ cameraId: cameraId ?? null, keys, segments, storage, clipAvailable: ff.available, ...(dayEvents !== undefined ? { events: dayEvents } : {}) });
   });
 }
 
