@@ -2,9 +2,9 @@ import { db } from "@/db";
 import { aiServices } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getSettings } from "@/lib/settings";
-import { AiError, type ServiceName } from "./types";
+import { AiError, type Egress, type ServiceName } from "./types";
 
-type ServiceConfig = { base: URL; key: string; model: string; remote: boolean };
+type ServiceConfig = { base: URL; key: string; model: string; remote: boolean; egress: Egress };
 const PREFIX: Record<ServiceName, string> = { hermes: "HERMES", vision: "DAI_VISION", ocr: "DAI_OCR", voice: "DAI_VOICE" };
 export const SERVICE_LABELS: Record<ServiceName, string> = { hermes: "Trợ lý AI", vision: "Nhận diện hình ảnh", ocr: "Nhận dạng văn bản", voice: "Giọng nói AI" };
 
@@ -24,8 +24,13 @@ export function serviceConfig(name: ServiceName): ServiceConfig | null {
   try { base = new URL(raw); } catch { throw new AiError("INVALID_CONFIG", `${SERVICE_LABELS[name]}: địa chỉ cấu hình không hợp lệ.`); }
   if (!["http:", "https:"].includes(base.protocol) || base.username || base.password || base.search || base.hash)
     throw new AiError("INVALID_CONFIG", `${SERVICE_LABELS[name]}: chỉ chấp nhận HTTP(S), không chứa mật khẩu/query trong URL.`);
-  const remote = !privateHost(base.hostname);
-  if (remote && base.protocol !== "https:") throw new AiError("TLS_REQUIRED", "Dịch vụ ngoài mạng riêng phải dùng HTTPS.");
+  // Egress is a server declaration, never inferred from the host: a loopback
+  // bridge can forward to the cloud. Undeclared/invalid => remote (fail-safe).
+  const declaredEgress = process.env[`${prefix}_EGRESS`]?.trim().toLowerCase();
+  const egress: Egress = declaredEgress === "local" ? "local" : "remote";
+  const outsideLan = !privateHost(base.hostname);
+  if (outsideLan && base.protocol !== "https:") throw new AiError("TLS_REQUIRED", "Dịch vụ ngoài mạng riêng phải dùng HTTPS.");
+  const remote = egress === "remote" || outsideLan;
   let path = base.pathname.replace(/\/+$/, "");
   if (!path.endsWith("/v1")) path += "/v1";
   base.pathname = path + "/";
@@ -33,7 +38,7 @@ export function serviceConfig(name: ServiceName): ServiceConfig | null {
   if ((name === "hermes" || remote) && !key) throw new AiError("MISSING_API_KEY", `${SERVICE_LABELS[name]} chưa có API key phía máy chủ.`);
   const model = process.env[`${prefix}_MODEL`]?.trim() ?? (name === "hermes" ? "hermes-agent" : "");
   if (name !== "hermes" && name !== "voice" && !model) throw new AiError("MISSING_MODEL", `${SERVICE_LABELS[name]} chưa cấu hình tên model.`);
-  return { base, key, model, remote };
+  return { base, key, model, remote, egress };
 }
 
 export async function markService(name: ServiceName, ok: boolean, latencyMs: number, code?: string) {
@@ -132,11 +137,11 @@ export async function completion(name: "hermes" | "vision" | "ocr", messages: un
 export async function serviceStatus() {
   const rows = await db.select().from(aiServices);
   return (["hermes", "vision", "ocr", "voice"] as ServiceName[]).map((name) => {
-    let configured = false, remote = false, configError: string | null = null;
-    try { const c = serviceConfig(name); configured = !!c; remote = c?.remote ?? false; }
+    let configured = false, remote = false, egress: Egress = "remote", configError: string | null = null;
+    try { const c = serviceConfig(name); configured = !!c; remote = c?.remote ?? false; egress = c?.egress ?? "remote"; }
     catch (e) { configError = e instanceof AiError ? e.message : "Cấu hình chưa hợp lệ"; }
     const row = rows.find((r) => r.name === name);
-    return { name, label: SERVICE_LABELS[name], configured, remote, configError,
+    return { name, label: SERVICE_LABELS[name], configured, remote, egress, configError,
       state: !configured ? "not_configured" : row?.cooldownUntil && row.cooldownUntil > new Date() ? "cooldown" : row?.state ?? "unknown",
       checkedAt: row?.checkedAt ?? null, latencyMs: row?.latencyMs ?? null, lastError: row?.lastError ?? null,
       stt: name === "voice" && configured && !!process.env.DAI_VOICE_STT_MODEL,
