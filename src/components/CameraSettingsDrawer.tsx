@@ -355,13 +355,19 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
   const fmtVnd = (v: number | null) => (v === null ? null : `${v.toLocaleString("vi-VN")} ₫`);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/60">
+      {/* Lớp phủ là <button> thật: đóng được bằng chuột, Enter và Space (Sonar S1082). */}
+      <button
+        type="button"
+        aria-label="Đóng cài đặt"
+        className="absolute inset-0 h-full w-full cursor-default"
+        onClick={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Cài đặt camera"
-        className="scroll-thin h-full w-full max-w-md space-y-3 overflow-y-auto border-l border-cyan-400/20 bg-[#0b1626] p-4"
-        onClick={(e) => e.stopPropagation()}
+        className="scroll-thin relative h-full w-full max-w-md space-y-3 overflow-y-auto border-l border-cyan-400/20 bg-[#0b1626] p-4"
       >
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
