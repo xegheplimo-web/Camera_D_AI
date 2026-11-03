@@ -142,6 +142,11 @@ test("integration: purge_demo chỉ xoá source='demo', giữ nguyên live", { t
     const [lAsset] = await tx.insert(assets).values({ kind: "image", mime: "image/jpeg", sha256: "p-live", origin: "upload", cameraId: cam.id }).returning();
     const [lEv] = await tx.insert(events).values({ cameraId: cam.id, type: "motion", label: "live-ev", assetId: dAsset.id, source: "live", happenedAt: FRESH }).returning();
     const [lEx] = await tx.insert(extractions).values({ assetId: dAsset.id, note: "live-ex", source: "live", eventId: lEv.id }).returning();
+    // Fixture TỰ tạo dữ liệu demo — không phụ thuộc DB đang có sẵn demo rows (test phải hermetic).
+    await tx.insert(events).values({ cameraId: cam.id, type: "motion", label: "demo-ev", assetId: dAsset.id, source: "demo", happenedAt: FRESH });
+    await tx.insert(extractions).values({ assetId: dAsset.id, note: "demo-ex", source: "demo" });
+    // asset demo mồ côi (không extraction nào tham chiếu) → phải bị xoá; url=null để không đụng file thật.
+    const [dOrphan] = await tx.insert(assets).values({ kind: "image", mime: "image/jpeg", sha256: "p-demo-orphan", url: null, origin: "demo", cameraId: cam.id }).returning();
 
     const liveEvBefore = await count(tx, events, sql`${events.source} <> 'demo'`);
     const liveExBefore = await count(tx, extractions, sql`${extractions.source} <> 'demo'`);
@@ -155,6 +160,7 @@ test("integration: purge_demo chỉ xoá source='demo', giữ nguyên live", { t
     // asset demo còn được live extraction tham chiếu (asset_id NOT NULL) → giữ lại, đếm trong assetsKept
     assert.equal(await count(tx, assets, eq(assets.origin, "demo")), r.assetsKept, "demo asset mồ côi phải = 0");
     assert.equal(r.assetsKept, 1, "dAsset được lEx tham chiếu → giữ");
+    assert.equal((await tx.select({ id: assets.id }).from(assets).where(eq(assets.id, dOrphan.id))).length, 0, "asset demo mồ côi bị xoá");
     assert.equal(await count(tx, events, sql`${events.source} <> 'demo'`), liveEvBefore, "live events giữ nguyên");
     assert.equal(await count(tx, extractions, sql`${extractions.source} <> 'demo'`), liveExBefore);
     assert.equal(await count(tx, assets, sql`${assets.origin} <> 'demo'`), liveAsetBefore);

@@ -31,12 +31,16 @@ export function clearProbeCache(): void {
  * offline : API trả lời được nhưng item không tồn tại hoặc chưa ready/online
  * unknown : không gọi được mediaMTX (lỗi mạng, timeout, HTTP không 200)
  */
-export async function probeRtsp(streamName: string): Promise<ConnectionState> {
+export async function probeRtsp(streamName: string, timeoutMs: number = PROBE_TIMEOUT_MS): Promise<ConnectionState> {
   const hit = probeCache.get(streamName);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.state;
   let state: ConnectionState;
+  // AbortController + clearTimeout (không dùng AbortSignal.timeout) để không để lại timer
+  // treo khi test/probe kết thúc sớm — timer treo làm node:test huỷ subtest trên CI.
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    const res = await fetch(`${mediamtxApi()}/v3/paths/list`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS), cache: "no-store" });
+    const res = await fetch(`${mediamtxApi()}/v3/paths/list`, { signal: ctl.signal, cache: "no-store" });
     if (!res.ok) {
       state = "unknown";
     } else {
@@ -46,6 +50,8 @@ export async function probeRtsp(streamName: string): Promise<ConnectionState> {
     }
   } catch {
     state = "unknown";
+  } finally {
+    clearTimeout(timer);
   }
   probeCache.set(streamName, { state, at: Date.now() });
   return state;

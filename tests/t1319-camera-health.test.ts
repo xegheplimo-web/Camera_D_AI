@@ -71,7 +71,7 @@ test("probeRtsp: lỗi mạng hoặc timeout → unknown; HTTP không 200 → un
 
   mockFetchHang();
   clearProbeCache();
-  assert.equal(await probeRtsp("cam"), "unknown"); // AbortSignal.timeout(1500) bên trong
+  assert.equal(await probeRtsp("cam", 50), "unknown"); // timeout 50 ms, timer được clearTimeout trong finally
 });
 
 test("probeRtsp cache 5 giây: chỉ gọi mediaMTX một lần cho cùng streamName", async () => {
