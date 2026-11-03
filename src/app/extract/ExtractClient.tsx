@@ -5,7 +5,8 @@ import { useSearchParams } from "next/navigation";
 import {
   Camera, UploadCloud, Crop, X, ZoomIn, ZoomOut, Sparkles, Loader2, CheckCircle2, Save, Link2, Ban, RotateCcw, RotateCw, Scissors, Columns2, Download, Tag, AlertTriangle, History, ImageIcon,
 } from "lucide-react";
-import { api, drawToCanvas, fileToDataUrl, getDeviceId, uploadDataUrl, type Roi } from "@/lib/client";
+import { api, drawToCanvas, fileToDataUrl, getDeviceId, loadImage, uploadDataUrl, type Roi } from "@/lib/client";
+import { TASK_PRESETS, applyPreset } from "@/lib/extract-presets";
 import type { ExtractionResult } from "@/db/schema";
 import { Badge, Modal } from "@/components/ui";
 import { useApp } from "@/components/AppState";
@@ -26,13 +27,7 @@ const TEMPLATES = [
   { t: "Xác định màu áo chủ đạo, số người, đồ vật mang theo", type: "freeform" },
 ];
 
-const TASKS: [string, string][] = [
-  ["freeform", "Tự do"],
-  ["object_count", "Đếm đối tượng"],
-  ["ocr", "OCR văn bản"],
-  ["plate", "Biển số xe"],
-  ["describe", "Mô tả ảnh"],
-];
+type CamLite = { id: number; name: string; location: string; sourceType: string; thumbnail: string | null };
 
 const STATUS_LABEL: Record<Status, [string, string]> = {
   DRAFT: ["Đã lưu ghi chú · chưa chạy AI", "teal"],
@@ -87,6 +82,8 @@ export default function ExtractClient() {
   const [history, setHistory] = useState<ExRow[]>([]);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [pulseUpload, setPulseUpload] = useState(false);
+  const [appliedPreset, setAppliedPreset] = useState<string | null>(null);
+  const [captureCam, setCaptureCam] = useState<CamLite | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const camFileRef = useRef<HTMLInputElement>(null);
@@ -98,6 +95,11 @@ export default function ExtractClient() {
   useEffect(() => {
     loadHistory();
     api<{ settings: { remoteProcessingAllowed: boolean } }>("/api/settings").then((r) => setRemoteAllowed(r.settings.remoteProcessingAllowed)).catch(() => {});
+    // "Chụp ảnh" lấy khung hình từ camera đã chọn ở trang Camera (dai_cam_id); một camera duy nhất thì chọn luôn.
+    api<CamLite[]>("/api/cameras").then((list) => {
+      const stored = Number(window.localStorage.getItem("dai_cam_id"));
+      setCaptureCam(list.find((c) => c.id === stored) ?? (list.length === 1 ? list[0] : null));
+    }).catch(() => {});
     const pendingJob = params.get("job");
     if (pendingJob) void followJob(pendingJob);
     // Never reuse another image’s note. Each image has its own draft key.
@@ -125,8 +127,10 @@ export default function ExtractClient() {
   useEffect(() => {
     if (!captureOpen) return;
     let cancelled = false;
+    const storedDevice = window.localStorage.getItem("dai_webcam_device");
+    const video: MediaTrackConstraints = storedDevice ? { deviceId: { ideal: storedDevice }, width: { ideal: 1920 } } : { facingMode: "environment", width: { ideal: 1920 } };
     navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 } } })
+      ?.getUserMedia({ video })
       .then((s) => {
         if (cancelled) return s.getTracks().forEach((t) => t.stop());
         streamRef.current = s;
@@ -153,6 +157,7 @@ export default function ExtractClient() {
     setJob(null);
     setAssetId(null);
     setNote(""); setTitle(""); setTags("");
+    setAppliedPreset(null);
     setProductName(""); setSku(""); setPriceVnd(""); setQuantity("");
     setRoi(null);
     setEx(null);
@@ -226,6 +231,30 @@ export default function ExtractClient() {
     await ingest(c.toDataURL("image/jpeg", 0.9), c.width, c.height, `chup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`, "capture");
   };
 
+  const pickPreset = (type: string, presetNote: string) => {
+    setTaskType(type);
+    const r = applyPreset(note, appliedPreset, presetNote);
+    setNote(r.note);
+    setAppliedPreset(r.applied);
+  };
+
+  // Chụp khung hình từ camera đã chọn trên trang Camera — webcam mở modal chụp, RTSP/demo lấy frame hiện tại.
+  const captureFromCamera = async () => {
+    if (!captureCam) return;
+    if (captureCam.sourceType === "webcam") return setCaptureOpen(true);
+    try {
+      const src = captureCam.sourceType === "rtsp" ? `/api/cameras/${captureCam.id}/stream` : captureCam.thumbnail ?? "/cams/cam1.jpg";
+      const img = await Promise.race([
+        loadImage(src),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Không lấy được khung hình từ camera")), 9000)),
+      ]);
+      const c = drawToCanvas(img, img.naturalWidth, img.naturalHeight, 1600);
+      await ingest(c.toDataURL("image/jpeg", 0.9), c.width, c.height, `chup_${captureCam.name}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`, "capture");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Không chụp được khung hình camera");
+    }
+  };
+
   // ROI drawing
   const rel = (e: React.PointerEvent) => {
     const r = imgRef.current!.getBoundingClientRect();
@@ -269,7 +298,7 @@ export default function ExtractClient() {
       if (row) {
         setAssetId(row.assetId);
         setImgUrl(`/api/assets/${row.assetId}`);
-        setNote(row.note); setTitle(row.title); setRoi(row.roi); setTaskType(row.taskType);
+        setNote(row.note); setTitle(row.title); setRoi(row.roi); setTaskType(row.taskType); setAppliedPreset(null);
         setProductName(row.productName || ""); setSku(row.sku || ""); setPriceVnd(row.priceVnd == null ? "" : String(row.priceVnd)); setQuantity(row.quantity == null ? "" : String(row.quantity));
         setEx({ ...row, thumb: `/api/assets/${row.assetId}` });
       }
@@ -334,6 +363,7 @@ export default function ExtractClient() {
     setFileName(h.title);
     setRoi(h.roi);
     setNote(h.note);
+    setAppliedPreset(null);
     setProductName(h.productName || ""); setSku(h.sku || "");
     setPriceVnd(h.priceVnd == null ? "" : String(h.priceVnd));
     setQuantity(h.quantity == null ? "" : String(h.quantity));
@@ -413,7 +443,12 @@ export default function ExtractClient() {
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button disabled={status === "PROCESSING"} onClick={() => setCaptureOpen(true)} className="btn btn-primary"><Camera className="h-4 w-4" /> Chụp ảnh</button>
+            <button
+              disabled={status === "PROCESSING" || !captureCam}
+              onClick={captureFromCamera}
+              title={captureCam ? `Chụp khung hình hiện tại từ ${captureCam.name}` : "Chọn camera ở trang Camera trước"}
+              className="btn btn-primary"
+            ><Camera className="h-4 w-4" /> Chụp ảnh</button>
             <button disabled={status === "PROCESSING"} onClick={() => { setPulseUpload(false); fileRef.current?.click(); }} className={`btn btn-ghost ${pulseUpload ? "neon-ring anim-pulse-soft" : ""}`}><UploadCloud className="h-4 w-4" /> Tải ảnh lên</button>
             <button onClick={() => setRoiMode((m) => !m)} disabled={!imgUrl || status === "PROCESSING"} className={`btn ${roiMode ? "btn-primary" : "btn-ghost"}`}><Crop className="h-4 w-4" /> {roiMode ? "Kéo để chọn vùng…" : "Chọn vùng"}</button>
             <button onClick={rotate} disabled={!imgUrl || status === "PROCESSING"} className="btn btn-ghost" title="Xoay 90°"><RotateCw className="h-4 w-4" /> Xoay</button>
@@ -431,11 +466,16 @@ export default function ExtractClient() {
         {/* RIGHT: note + results */}
         <section className="glass flex flex-col gap-3 rounded-2xl p-4">
           <h2 className="font-semibold">Ghi chú / Chỉ dẫn trích xuất</h2>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2">
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tên tác vụ (vd: Kiểm kê hàng)" className="input" aria-label="Tên tác vụ" />
-            <select value={taskType} onChange={(e) => setTaskType(e.target.value)} className="input" aria-label="Loại trích xuất">
-              {TASKS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-            </select>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Loại trích xuất">
+              {TASK_PRESETS.map((p) => (
+                <button key={p.type} onClick={() => pickPreset(p.type, p.note)} title={p.note}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] ${taskType === p.type ? "border-cyan-300/60 bg-cyan-500/25 text-white" : "border-cyan-400/20 bg-cyan-500/5 text-cyan-100 hover:bg-cyan-500/15"}`}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
           <details className="rounded-xl border border-cyan-400/15 bg-cyan-500/5 p-3" open>
             <summary className="cursor-pointer text-sm font-semibold">Thông tin sản phẩm riêng cho ảnh này (tùy chọn)</summary>
@@ -450,7 +490,7 @@ export default function ExtractClient() {
           <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={4} className="input" placeholder="Ví dụ: Trích xuất biển số xe, màu áo, số người, đồ vật mang theo…" aria-label="Ghi chú yêu cầu" />
           <div className="flex flex-wrap gap-1.5">
             {TEMPLATES.map((t) => (
-              <button key={t.t} onClick={() => { setNote(t.t); setTaskType(t.type); }} className="rounded-full border border-cyan-400/20 bg-cyan-500/5 px-2.5 py-1 text-[11px] text-cyan-100 hover:bg-cyan-500/15">{t.t}</button>
+              <button key={t.t} onClick={() => pickPreset(t.type, t.t)} className="rounded-full border border-cyan-400/20 bg-cyan-500/5 px-2.5 py-1 text-[11px] text-cyan-100 hover:bg-cyan-500/15">{t.t}</button>
             ))}
           </div>
           <div className="flex items-center gap-2">
@@ -463,7 +503,12 @@ export default function ExtractClient() {
             <label className="flex items-center gap-1.5 text-[11px] text-slate-400"><input type="checkbox" className="accent-cyan-400" checked={allowRemote} disabled={!remoteAllowed || status === "PROCESSING"} onChange={(e) => setAllowRemote(e.target.checked)} /> Cho phép gửi ảnh tới AI ngoài mạng riêng</label>
           </div>
           {!remoteAllowed && <p className="text-[10px] text-slate-400">AI ngoài mạng riêng đang tắt. Xử lý AI nội bộ vẫn có thể xử lý ảnh.</p>}
-          <button onClick={extract} disabled={status === "PROCESSING" || !assetId} className="btn btn-primary py-3 text-base">
+          <button
+            onClick={extract}
+            disabled={status === "PROCESSING" || !assetId || !note.trim()}
+            title={!assetId ? "Chụp ảnh hoặc tải ảnh lên trước khi trích xuất" : !note.trim() ? "Nhập ghi chú yêu cầu, hoặc chọn một preset bên trên để tự điền" : ""}
+            className="btn btn-primary py-3 text-base"
+          >
             {status === "PROCESSING" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
             {status === "PROCESSING" ? progress || "Đang xử lý…" : result ? "Trích xuất lại" : "Trích xuất"}
           </button>

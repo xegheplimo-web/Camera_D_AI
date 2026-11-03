@@ -16,6 +16,7 @@
     "test:seed": "node --import tsx --test tests/seed-marker.test.ts",
     "test:google": "node --import tsx --test tests/google-auth.unit.test.ts tests/google-start.test.ts",
     "test:rl-http": "node --import tsx --test tests/rl-http.test.ts",
+    "test:t1318": "node --import tsx --test tests/t1318-ux.test.ts",
     "db:push:dev": "drizzle-kit push"
   },
   "dependencies": {

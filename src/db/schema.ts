@@ -173,6 +173,8 @@ export type AnswerPayload = {
   nextActions: { label: string; href: string }[];
   chart?: { label: string; value: number }[];
   warnings: string[];
+  /** Cờ lưu lúc trả lời: câu trả lời có dùng dữ liệu mẫu (demoMode bật hoặc nguồn toàn demo). */
+  basedOnDemo?: boolean;
 };
 
 export const messages = pgTable("messages", {

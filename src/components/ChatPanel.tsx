@@ -7,6 +7,7 @@ import Robot from "./Robot";
 import { useApp } from "./AppState";
 import { api } from "@/lib/client";
 import { waitForJob } from "@/lib/ai/client";
+import { answerBasedOnDemo } from "@/lib/chat-demo";
 import type { JobView } from "@/lib/ai/types";
 import JobProgress from "./JobProgress";
 import useVoiceInput from "./useVoiceInput";
@@ -103,12 +104,14 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
   const [showKeyboard, setShowKeyboard] = useState(!compact);
   const [holdMode, setHoldMode] = useState(false);
   const [job, setJob] = useState<JobView | null>(null);
+  const [demoMode, setDemoMode] = useState<boolean | null>(null);
   const pollRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputModeRef = useRef<"text" | "voice">("text");
 
   useEffect(() => {
     api<Msg[]>("/api/chat").then((m) => setMsgs(compact ? m.slice(-4) : m)).catch(() => {});
+    api<{ settings: { demoMode: boolean } }>("/api/settings").then((r) => setDemoMode(r.settings.demoMode)).catch(() => {});
     const question = new URLSearchParams(window.location.search).get("question");
     if (question) { setInput(question.slice(0, 1000)); setShowKeyboard(true); }
   }, [compact]);
@@ -203,6 +206,14 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
         )}
       </div>
 
+      {demoMode === false && msgs.some((m) => m.role === "assistant" && answerBasedOnDemo(m.answer)) && (
+        <div className="mx-3 mt-2 flex items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">Có câu trả lời cũ dựa trên dữ liệu mẫu đã xoá — số liệu có thể không còn đúng.</span>
+          <button onClick={clear} className="shrink-0 rounded-lg border border-amber-400/40 px-2 py-1 font-semibold text-amber-100 hover:bg-amber-500/20">Xoá lịch sử</button>
+        </div>
+      )}
+
       <div ref={listRef} className="scroll-thin flex-1 space-y-3 overflow-y-auto p-4">
         {msgs.length === 0 && (
           <div className="space-y-3 text-sm text-slate-300">
@@ -221,6 +232,11 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
             <div key={m.id} className="anim-fadeup flex gap-2">
               <div className="mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-cyan-500/20 text-[10px] font-bold text-cyan-300">AI</div>
               <div className="max-w-[92%] flex-1 rounded-2xl rounded-tl-md border border-cyan-400/15 bg-[#0c1a3a]/80 px-3.5 py-2.5 text-sm">
+                {demoMode === false && m.answer && answerBasedOnDemo(m.answer) && (
+                  <div className="mb-1.5 inline-flex items-center gap-1 rounded-md border border-amber-400/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200">
+                    <AlertTriangle className="h-3 w-3" /> Dựa trên dữ liệu mẫu đã xoá
+                  </div>
+                )}
                 {m.answer ? <AnswerCard a={m.answer} onReplay={() => speak(m.answer!.short)} onOpen={(src, label) => setLightbox({ src, label })} /> : m.text}
               </div>
             </div>
