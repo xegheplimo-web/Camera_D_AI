@@ -105,6 +105,8 @@ jobs:
         run: npm run test:rl-http
       - name: Camera health probe tests (T-1319)
         run: npm run test:t1319
+      - name: Install Playwright chromium (UI suites)
+        run: npx playwright install --with-deps chromium
       - name: Feature regression suites (T-1318 → T-1340)
         run: |
           for s in test:scope test:retention test:t1318 test:t1323 test:t1335 test:t1336 test:t1337 test:t1338 test:t1339 test:t1340; do
