@@ -30,8 +30,10 @@ function hasAudioTrack(tracks: unknown): boolean {
 
 /** `keep` = recordDeleteAfter mặc định khi caller không truyền retentionDays (camera_settings mặc định 7 ngày ⇒ "7d"). */
 export function recorderConfig(): { api: string; recordingsDir: string; segment: string; keep: string } {
+  let api = process.env.MEDIAMTX_API ?? "http://127.0.0.1:9997";
+  while (api.endsWith("/")) api = api.slice(0, -1);
   return {
-    api: (process.env.MEDIAMTX_API ?? "http://127.0.0.1:9997").replace(/\/+$/, ""),
+    api,
     recordingsDir: resolve(process.env.RECORDINGS_DIR || "F:/Camera-D-AI/runtime/recordings"),
     segment: "5m",
     keep: "7d",
@@ -77,7 +79,7 @@ function recordBody(sourceUrl: string, retentionDays?: number): string {
 /** Audio fail-closed: runtime get không đọc được hay tracks lạ ⇒ false (không hứa âm thanh). */
 async function audioState(name: string): Promise<boolean> {
   const { res } = await call(`/v3/paths/get/${name}`, { method: "GET" });
-  if (!res || !res.ok) return false;
+  if (!res?.ok) return false;
   const body = (await res.json().catch(() => null)) as { tracks?: unknown } | null;
   return hasAudioTrack(body?.tracks);
 }
