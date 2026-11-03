@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, ImagePlus, Loader2, Plus, Save, Trash2, X } from "lucide-react";
+import { ArrowLeft, ImagePlus, Loader2, Plus, Save, Sparkles, Trash2, X } from "lucide-react";
 import { api } from "@/lib/client";
 import { Badge } from "./ui";
 import type { Cam } from "./CameraView";
@@ -24,7 +24,8 @@ type CamSettings = {
 };
 
 type KItem = { id: number; title: string; sku: string | null; note: string | null; priceVnd: number | null; createdAt: string };
-type KImage = { id: number; assetId: number; note: string | null; position: number };
+type KImage = { id: number; assetId: number; note: string | null; position: number; shareToLibrary?: boolean };
+type TeachState = { images: number; embedded: number; ready: boolean };
 type KDetail = KItem & { images: KImage[]; priceHistory: { id: number; priceVnd: number; effectiveFrom: string }[] };
 type EvThumb = { id: number; assetId: number | null; thumb: string | null; label: string; happenedAt: string };
 
@@ -101,6 +102,8 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
   const [newTitle, setNewTitle] = useState("");
   const [newNote, setNewNote] = useState("");
   const [detail, setDetail] = useState<KDetail | null>(null);
+  const [teach, setTeach] = useState<TeachState | null>(null);
+  const [gtin, setGtin] = useState("");
   const [detailBusy, setDetailBusy] = useState(false);
   const [itemTitleD, setItemTitleD] = useState<string | null>(null);
   const [itemNoteD, setItemNoteD] = useState<string | null>(null);
@@ -240,6 +243,8 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
       const d = await api<KDetail>(`/api/knowledge/items/${id}`);
       if (detail?.id !== d.id) resetItemDrafts();
       setDetail(d);
+      setGtin(String((d as unknown as { custom?: { gtin?: string } }).custom?.gtin ?? ""));
+      api<TeachState>(`/api/products/${id}/embed`).then(setTeach).catch(() => setTeach(null));
     } catch (e) {
       flash(e instanceof Error ? e.message : "Không mở được mục");
     } finally {
@@ -306,10 +311,54 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
     setSaving(true);
     try {
       await api(`/api/knowledge/items/${detail.id}/images`, { method: "POST", json: { assetId } });
+      // T-1362: gắn ảnh xong là cho AI học ngay (idempotent, không cần chờ train).
+      const r = await api<{ encoded: number }>(`/api/products/${detail.id}/embed`, { method: "POST" }).catch(() => null);
       await openItem(detail.id);
-      flash("Đã gắn ảnh");
+      flash(r && r.encoded > 0 ? "Đã gắn ảnh và cho AI học" : "Đã gắn ảnh");
     } catch (e) {
       flash(e instanceof Error ? e.message : "Không gắn được ảnh");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const teachNow = async () => {
+    if (!detail || saving) return;
+    setSaving(true);
+    try {
+      const r = await api<{ encoded: number; avgMs?: number }>(`/api/products/${detail.id}/embed`, { method: "POST" });
+      setTeach(await api<TeachState>(`/api/products/${detail.id}/embed`));
+      flash(r.encoded > 0 ? `AI đã học ${r.encoded} ảnh` : "Chưa có ảnh nào đọc được để học");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Không học được ảnh");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveGtin = async () => {
+    if (!detail || saving) return;
+    setSaving(true);
+    try {
+      await api(`/api/knowledge/items/${detail.id}`, { method: "PATCH", json: { gtin: gtin.trim() || null } });
+      await openItem(detail.id);
+      flash("Đã lưu mã vạch");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Mã vạch không hợp lệ");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleShare = async (im: KImage, on: boolean) => {
+    if (!detail || saving) return;
+    setSaving(true);
+    try {
+      await api(`/api/knowledge/images/${im.id}`, { method: "PATCH", json: { shareToLibrary: on } });
+      await openItem(detail.id);
+      flash(on ? "Đã đồng ý chia sẻ ảnh này" : "Đã tắt chia sẻ ảnh này");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Không đổi được lựa chọn chia sẻ");
     } finally {
       setSaving(false);
     }
@@ -490,6 +539,27 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
               {detail.priceVnd !== null && (
                 <p className="text-xs text-slate-300">Giá: <b>{fmtVnd(detail.priceVnd)}</b>{detail.priceHistory.length > 1 && <span className="text-slate-400"> · {detail.priceHistory.length} lần đổi giá</span>}</p>
               )}
+              <label className="block text-xs text-slate-400">
+                Mã vạch (nếu có)
+                <div className="mt-1 flex gap-1.5">
+                  <input value={gtin} onChange={(e) => setGtin(e.target.value)} inputMode="numeric" maxLength={20} placeholder="8938505974194" aria-label="Mã vạch" data-gtin className="input" />
+                  <button onClick={() => void saveGtin()} disabled={saving} aria-label="Lưu mã vạch" className="btn btn-ghost shrink-0 px-2 py-1 text-[11px]">Lưu</button>
+                </div>
+              </label>
+
+              <div className="rounded-lg border border-cyan-400/20 p-2" data-teach-panel>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-200">Dạy AI nhận diện</span>
+                  <span data-teach-status className={`text-[11px] font-semibold ${teach?.ready ? "text-emerald-300" : "text-amber-300"}`}>
+                    {teach === null ? "Đang kiểm tra…" : teach.ready ? `Sẵn sàng · ${teach.embedded}/${teach.images} ảnh` : teach.images ? `Chưa học · ${teach.images} ảnh` : "Chưa có ảnh"}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-400">Ảnh ở nhiều góc giúp nhận đúng hơn. Ảnh chỉ dùng cho cửa hàng này, không huấn luyện model chung.</p>
+                <button onClick={() => void teachNow()} disabled={saving || !teach?.images} data-teach className="btn btn-primary mt-1.5 px-2 py-1 text-[11px]">
+                  <Sparkles className="h-3.5 w-3.5" /> Dạy AI nhận diện
+                </button>
+              </div>
+
               <div className="flex gap-2">
                 <button onClick={saveItem} disabled={saving || !itemTitle.trim() || !itemDirty} className="btn btn-primary py-1 text-xs"><Save className="h-3.5 w-3.5" /> Lưu mục</button>
                 <button onClick={removeItem} disabled={saving} className={`btn py-1 text-xs ${confirmDel ? "btn-danger" : "btn-ghost"}`}>
@@ -537,9 +607,13 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
                             aria-label="Ghi chú ảnh"
                             className="input py-1 text-xs"
                           />
-                          <div className="flex gap-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <button onClick={() => void saveImageNote(im)} disabled={saving || !changed} aria-label="Lưu ghi chú ảnh" className="btn btn-primary px-2 py-0.5 text-[11px]">Lưu</button>
                             <button onClick={() => void detachImage(im)} disabled={saving} aria-label="Gỡ ảnh" className="btn btn-ghost px-2 py-0.5 text-[11px]">Gỡ ảnh</button>
+                            <label className="ml-auto flex items-center gap-1 text-[11px] text-slate-400">
+                              <input type="checkbox" data-share={im.id} checked={im.shareToLibrary === true} disabled={saving} onChange={(e) => void toggleShare(im, e.target.checked)} aria-label="Chia sẻ ảnh cho thư viện chung" className="h-3 w-3" />
+                              Chia sẻ cho thư viện chung
+                            </label>
                           </div>
                         </div>
                       </div>

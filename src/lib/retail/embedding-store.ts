@@ -171,3 +171,20 @@ export async function indexStats(tenantId: number, model = MODEL_KEY, version = 
     version,
   };
 }
+
+export type EmbedStatus = { images: number; embedded: number; ready: boolean };
+
+/** Trạng thái học của một SKU: số ảnh đã gắn / số ảnh đã có vector (T-1362). */
+export async function embedStatus(tenantId: number, itemId: number): Promise<EmbedStatus> {
+  const res = await db.execute(sql`
+    select
+      (select count(*)::int from knowledge_images
+        where tenant_id = ${tenantId} and item_id = ${itemId} and deleted_at is null) as images,
+      (select count(*)::int from product_embeddings
+        where tenant_id = ${tenantId} and item_id = ${itemId}) as embedded
+  `);
+  const row = (res.rows?.[0] ?? { images: 0, embedded: 0 }) as { images: number; embedded: number };
+  const images = Number(row.images ?? 0);
+  const embedded = Number(row.embedded ?? 0);
+  return { images, embedded, ready: embedded > 0 };
+}

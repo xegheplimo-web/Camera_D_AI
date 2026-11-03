@@ -6,7 +6,7 @@ import { withTenant } from "@/lib/knowledge/http";
 import { getItem } from "@/lib/knowledge/items";
 import { readLocalAsset } from "@/lib/camera/detector";
 import { encodeImage } from "@/lib/retail/encoder";
-import { upsertEmbedding } from "@/lib/retail/embedding-store";
+import { embedStatus, upsertEmbedding } from "@/lib/retail/embedding-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -81,5 +81,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       avgMs: encoded ? Math.round((totalMs / encoded) * 10) / 10 : null,
       errors,
     });
+  });
+}
+
+/**
+ * GET /api/products/[id]/embed — trạng thái học của một sản phẩm (T-1362).
+ * `ready` = đã có ít nhất 1 ảnh được tạo vector ⇒ nhận diện được.
+ */
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  return withTenant("read", async ({ tenantId }) => {
+    const { id } = await ctx.params;
+    const itemId = Number(id);
+    if (!Number.isInteger(itemId) || itemId <= 0) throw new HttpError(400, "INVALID_ID", "id sản phẩm không hợp lệ.");
+    const item = await getItem(tenantId, itemId);
+    if (!item) throw new HttpError(404, "NOT_FOUND", "Không tìm thấy sản phẩm trong cửa hàng này.");
+    return Response.json({ itemId, ...(await embedStatus(tenantId, itemId)) });
   });
 }
