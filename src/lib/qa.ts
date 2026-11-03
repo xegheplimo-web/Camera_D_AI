@@ -69,14 +69,15 @@ async function detectCamera(s: string, tenantId: number): Promise<{ cam: CamHit 
     [/trong nhà|trong cửa hàng/, "CAM-03"],
     [/kho/, "CAM-04"],
   ];
-  let asked = m !== null;
+  const asked = m !== null;
   for (const [re, code] of byLoc) {
-    if (re.test(s)) {
-      const cam = pick(code);
-      if (cam) return { cam, missing: false };
-      asked = true;
-    }
+    if (!re.test(s)) continue;
+    const cam = pick(code);
+    if (cam) return { cam, missing: false };
   }
+  // Chỉ báo "không khớp" khi câu hỏi chỉ đích danh mã camera (CAM-xx).
+  // Từ khóa vị trí ("cửa hàng", "kho"…) không khớp camera nào thì vẫn tổng hợp toàn tenant
+  // như hành vi trước đây — tránh chặn oan câu hỏi về kho ảnh/ghi chú.
   return { cam: null, missing: asked };
 }
 
