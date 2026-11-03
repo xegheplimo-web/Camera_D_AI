@@ -2,7 +2,7 @@ import "dotenv/config";
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { desc, eq, like } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import { db, pool } from "../src/db";
 import { aiServices, auditLog } from "../src/db/schema";
 import { routeQuestion } from "../src/lib/ai/routing";
@@ -111,8 +111,15 @@ test("telemetry ai.route: ghi audit_log, JSON gọn không chứa prompt/ảnh",
     { taskType: "video.search", profile: "video.search", adapter: "video-search", model: null, latencyMs: 42, ok: true, fallbackUsed: false, consentState: "not_required", requestId },
     { name: "t1330-test", role: "owner", device: "test" },
   );
-  const [row] = await db.select().from(auditLog).where(eq(auditLog.action, "ai.route")).orderBy(desc(auditLog.id)).limit(1);
-  assert.ok(row, "audit_log phải có action=ai.route sau một lần ghi");
+  // Lọc đúng dòng của test này: các test khác (serviceFetch) cũng ghi ai.route song song,
+  // đọc "dòng mới nhất" toàn cục là race → flaky trên CI (đã đỏ ở run 41570192132 và 41572460569).
+  const [row] = await db
+    .select()
+    .from(auditLog)
+    .where(and(eq(auditLog.action, "ai.route"), like(auditLog.detail, `%${requestId}%`)))
+    .orderBy(desc(auditLog.id))
+    .limit(1);
+  assert.ok(row, "audit_log phải có dòng ai.route của chính test này");
   routeIds.push(row.id);
   assert.equal(row.actor, "t1330-test");
   const detail = JSON.parse(row.detail ?? "{}") as Record<string, unknown>;
