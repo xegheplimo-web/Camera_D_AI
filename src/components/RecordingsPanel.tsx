@@ -53,7 +53,7 @@ export default function RecordingsPanel({ cameraId }: { cameraId: number }) {
   // Không có bản ghi nào (đang tải hoặc rỗng) → ẩn hẳn, đúng spec "không hiện nút khi không có segment".
   if (!segs?.length) return null;
 
-  const days = [...new Set(segs.map((s) => localDay(new Date(s.start))))].sort().reverse();
+  const days = [...new Set(segs.map((s) => localDay(new Date(s.start))))].sort((a, b) => b.localeCompare(a));
   const clipHref = playing
     ? playUrl(cameraId, new Date(Math.max(0, new Date(playing).getTime() - 30_000)).toISOString(), "&duration=60&download=1")
     : null;
