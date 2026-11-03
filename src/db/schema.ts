@@ -13,10 +13,18 @@ import {
 
 /* ---------------- Identity (G2 security foundation) ---------------- */
 
+export const tenants = pgTable("tenants", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("tenants_slug_uniq").on(t.slug)]);
+
 export const users = pgTable(
   "users",
   {
     id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id").notNull().default(1), // T-1333
     login: text("login").notNull(),
     displayName: text("display_name").notNull(),
     passwordHash: text("password_hash"), // NULL = OAuth-only account, password login can never succeed
@@ -54,6 +62,7 @@ export const appSettings = pgTable("app_settings", {
 
 export const cameras = pgTable("cameras", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().default(1), // T-1333
   code: text("code").notNull(),
   name: text("name").notNull(),
   location: text("location").notNull(),
@@ -72,6 +81,7 @@ export const assets = pgTable(
   "assets",
   {
     id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id").notNull().default(1), // T-1333
     kind: text("kind").notNull().default("image"), // image | video
     mime: text("mime").notNull(),
     sha256: text("sha256").notNull(),
@@ -93,6 +103,7 @@ export const events = pgTable(
   "events",
   {
     id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id").notNull().default(1), // T-1333
     cameraId: integer("camera_id").notNull(),
     type: text("type").notNull(),
     objectClass: text("object_class"),
@@ -134,6 +145,7 @@ export const extractions = pgTable(
   "extractions",
   {
     id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id").notNull().default(1), // T-1333
     assetId: integer("asset_id").notNull(),
     title: text("title").notNull().default("Trích xuất ảnh"),
     note: text("note").notNull(),
@@ -179,6 +191,7 @@ export type AnswerPayload = {
 
 export const messages = pgTable("messages", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().default(1), // T-1333
   role: text("role").notNull(),
   text: text("text").notNull(),
   answer: jsonb("answer").$type<AnswerPayload>(),
@@ -192,6 +205,7 @@ export const messages = pgTable("messages", {
 /* Durable Gateway jobs; inputs/results never contain credentials. */
 export const aiJobs = pgTable("ai_jobs", {
   id: text("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().default(1), // T-1333
   userId: integer("user_id").notNull().references(() => users.id),
   sessionId: text("session_id").notNull(),
   requester: text("requester").notNull(),
@@ -234,6 +248,7 @@ export const aiServices = pgTable("ai_services", {
 
 export const alertRules = pgTable("alert_rules", {
   id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().default(1), // T-1333
   name: text("name").notNull(),
   type: text("type").notNull().default("alert"), // event type the rule applies to
   priority: text("priority").notNull().default("important"),
