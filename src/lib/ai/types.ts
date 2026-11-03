@@ -20,6 +20,13 @@ export type JobInput = {
   asOf: string;
 };
 export type Plan = { tools: ToolName[]; origin: "hermes" | "gateway" };
+
+/** Server-owned task registry; the planner never picks a model/adapter itself. */
+export type TaskType = "data.query" | "analysis.multi_step" | "image.describe" | "video.summarize"
+  | "video.search" | "ocr.read" | "plate.read" | "text.embed" | "image.embed"
+  | "speech.stt" | "speech.tts" | "object.count";
+/** Declared data path of a service: never inferred from the endpoint host alone. */
+export type Egress = "local" | "remote";
 export type Step = {
   id: string;
   worker: string;
@@ -48,7 +55,7 @@ export type JobView = {
   requesterDevice: string;
   requester: string;
 };
-export type RouteDecision = { path: "fast" | "orchestrated"; reason: string };
+export type RouteDecision = { path: "fast" | "orchestrated"; reason: string; task?: TaskType };
 export const TERMINAL: JobState[] = ["succeeded", "partial", "failed", "cancelled"];
 
 export class AiError extends Error {

@@ -54,14 +54,20 @@ test("RBAC and expiring session tokens", async () => {
   assert.equal(await verifyToken(await signToken({ ...payload, exp: 1 })), null);
 });
 test("Deployment endpoints: server-only config, no credentials in URL, TLS outside LAN", () => {
-  const keys = ["HERMES_BASE_URL", "HERMES_API_KEY"];
+  const keys = ["HERMES_BASE_URL", "HERMES_API_KEY", "HERMES_EGRESS"];
   const old = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   try {
     delete process.env.HERMES_BASE_URL; assert.equal(serviceConfig("hermes"), null);
     process.env.HERMES_API_KEY = randomBytes(32).toString("hex");
     process.env.HERMES_BASE_URL = "http://127.0.0.1:8642/p/camera/v1";
-    assert.equal(serviceConfig("hermes")?.base.pathname, "/p/camera/v1/");
+    // Egress do server khai báo: chưa khai báo ⇒ fail-safe remote (bridge loopback có thể ra Internet).
+    delete process.env.HERMES_EGRESS;
+    assert.equal(serviceConfig("hermes")?.remote, true);
+    assert.equal(serviceConfig("hermes")?.egress, "remote");
+    process.env.HERMES_EGRESS = "local";
     assert.equal(serviceConfig("hermes")?.remote, false);
+    assert.equal(serviceConfig("hermes")?.egress, "local");
+    assert.equal(serviceConfig("hermes")?.base.pathname, "/p/camera/v1/");
     process.env.HERMES_BASE_URL = "http://example.com/v1"; assert.throws(() => serviceConfig("hermes"));
     process.env.HERMES_BASE_URL = "https://example.com/v1"; assert.equal(serviceConfig("hermes")?.remote, true);
     process.env.HERMES_BASE_URL = "https://user:password@example.com/v1"; assert.throws(() => serviceConfig("hermes"));

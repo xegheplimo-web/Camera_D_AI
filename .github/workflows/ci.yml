@@ -82,6 +82,15 @@ jobs:
         run: npm run build
       - name: Integration + unit tests
         run: npm run test:ai
+        env:
+          # T-1330: loopback fixture services must declare egress; undeclared
+          # now fails safe to remote and trips the consent gate.
+          HERMES_EGRESS: local
+          DAI_VISION_EGRESS: local
+          DAI_OCR_EGRESS: local
+          DAI_VOICE_EGRESS: local
+      - name: Egress consent + router foundation tests (T-1330)
+        run: npm run test:t1330
       - name: Camera/product unit tests
         run: npm run test:camera
       - name: Google auth unit tests

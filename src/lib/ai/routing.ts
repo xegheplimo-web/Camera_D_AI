@@ -4,10 +4,14 @@ import { AiError, type JobKind, type Plan, type Roi, type RouteDecision, type To
 export function routeQuestion(question: string): RouteDecision {
   const q = question.toLocaleLowerCase("vi-VN");
   if (/phân tích|bất thường|lập (báo cáo|kế hoạch)|báo cáo (chi tiết|tổng hợp|toàn bộ)|điều tra|nguyên nhân|đối chiếu|phân tích sâu|tóm tắt.*(tuần|tháng|camera)/u.test(q))
-    return { path: "orchestrated", reason: "Yêu cầu phân tích nhiều bước; Trợ lý AI chọn công cụ, xử lý AI thực hiện." };
+    return { path: "orchestrated", task: "analysis.multi_step", reason: "Yêu cầu phân tích nhiều bước; Trợ lý AI chọn công cụ, xử lý AI thực hiện." };
+  // Clip/footage retrieval goes to the video.search task before the ^tìm fast rule
+  // can swallow it — a VLM must never read whole recordings to answer these.
+  if (/\b(video|clip)\b|đoạn phim|trích xuất video|tìm.*(video|clip)/u.test(q))
+    return { path: "orchestrated", task: "video.search", reason: "Truy xuất đoạn phim đã ghi theo thời gian/camera/sự kiện; không đọc toàn bộ video bằng mô hình." };
   if (/bao nhiêu|mấy (giờ|người|khách|xe)|lượt|đầu tiên|gần nhất|cao điểm|^tìm|tìm kiếm|xin chào|^chào|giúp gì|làm được gì|ảnh đã lưu|ghi chú đã lưu|đang có|hiện tại|khi nào/u.test(q))
-    return { path: "fast", reason: "Truy vấn dữ liệu có cấu trúc; trả lời trực tiếp, không qua Trợ lý AI." };
-  return { path: "orchestrated", reason: "Yêu cầu cần diễn giải; kiểm tra bằng chứng trước khi trả lời." };
+    return { path: "fast", task: "data.query", reason: "Truy vấn dữ liệu có cấu trúc; trả lời trực tiếp, không qua Trợ lý AI." };
+  return { path: "orchestrated", task: "analysis.multi_step", reason: "Yêu cầu cần diễn giải; kiểm tra bằng chứng trước khi trả lời." };
 }
 
 export function requiredTools(kind: JobKind, note = "", taskType = "freeform"): ToolName[] {
