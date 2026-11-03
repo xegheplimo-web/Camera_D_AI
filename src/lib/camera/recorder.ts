@@ -71,7 +71,8 @@ function recordBody(sourceUrl: string, retentionDays?: number): string {
 export async function recorderState(streamName: string): Promise<RecorderState> {
   const bad = nameError(streamName);
   if (bad) return bad;
-  const { res, error } = await call(`/v3/paths/get/${encodeURIComponent(streamName)}`, { method: "GET" });
+  // record là cờ CONFIG — /v3/paths/get là runtime state (ready/readers/tracks…), không có record.
+  const { res, error } = await call(`/v3/config/paths/get/${encodeURIComponent(streamName)}`, { method: "GET" });
   if (!res) return { reachable: false, pathExists: false, recording: false, error };
   if (res.status === 404) return { reachable: true, pathExists: false, recording: false };
   if (!res.ok) return { reachable: false, pathExists: false, recording: false, error: `mediaMTX trả ${res.status}` };
@@ -110,7 +111,11 @@ export async function ensureRecordingPath(input: {
   return recorderState(input.streamName);
 }
 
-/** Tắt ghi nhưng giữ path. PATCH thất bại ⇒ báo recording:true (fail-safe — khả năng vẫn đang ghi). */
+/**
+ * Tắt ghi nhưng giữ path. PATCH thất bại ⇒ báo recording:true (fail-safe — khả
+ * năng vẫn đang ghi). PATCH ok thì đọc lại config trả recording thật: vẫn
+ * record:true ⇒ báo lỗi, không tắt giả.
+ */
 export async function disableRecording(streamName: string): Promise<RecorderState> {
   const bad = nameError(streamName);
   if (bad) return bad;
@@ -123,7 +128,10 @@ export async function disableRecording(streamName: string): Promise<RecorderStat
   if (res.status === 404) return { reachable: true, pathExists: false, recording: false };
   if (!res.ok)
     return { reachable: res.status < 500, pathExists: true, recording: true, error: `mediaMTX patch trả ${res.status}` };
-  return { reachable: true, pathExists: true, recording: false };
+  const st = await recorderState(streamName);
+  // PATCH ok nhưng không đọc lại được config ⇒ fail-safe: có thể vẫn đang ghi.
+  if (!st.reachable) return { reachable: false, pathExists: true, recording: true, error: st.error };
+  return st.recording ? { ...st, error: "mediaMTX vẫn báo record:true sau patch tắt" } : st;
 }
 
 /** Xoá hẳn path khi xoá camera; 404 = không có gì để gỡ, coi như thành công. */

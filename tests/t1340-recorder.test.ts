@@ -13,8 +13,10 @@ import {
  * T-1340 — control-plane recorder mediaMTX. fetch được mock nên test chạy không
  * cần mediaMTX/DB thật:
  *   (a) add 400 → patch fallback, body ghi đúng hợp đồng; gọi 2 lần không lỗi
- *   (b) disable → PATCH record:false; remove → DELETE path
- *   (c) mediaMTX 500 / mất mạng ⇒ reachable:false (không throw)
+ *   (b) disable → PATCH record:false rồi confirm lại bằng config get; remove → DELETE path
+ *   (c) cờ record đọc từ CONFIG get — runtime /v3/paths/get không có trường record
+ *       (lỗi P0 verify: recorderState đọc runtime ⇒ recording:false dù đang ghi);
+ *       mediaMTX 500 / mất mạng ⇒ reachable:false (không throw)
  *   (d) PATCH bật record khi recorder chết ⇒ 503 và persist() (ghi DB) không
  *       được gọi ⇒ record_enabled đứng yên
  */
@@ -61,7 +63,11 @@ test("ensureRecordingPath: add 400 → patch fallback, body đúng hợp đồng
   const calls = mockMtx((c) => {
     if (c.url.includes("/v3/config/paths/add/")) return new Response("path already exists", { status: 400 });
     if (c.url.includes("/v3/config/paths/patch/")) return new Response("{}", { status: 200 });
-    if (c.url.includes("/v3/paths/get/")) return Response.json({ name: "dai_cam_9", record: true, ready: true });
+    if (c.url.includes("/v3/config/paths/get/"))
+      return Response.json({ name: "dai_cam_9", record: true, recordFormat: "fmp4", recordDeleteAfter: "14d" });
+    // Runtime get: shape thật không có trường record — đọc nhầm endpoint này sẽ báo recording:false.
+    if (c.url.includes("/v3/paths/get/"))
+      return Response.json({ name: "dai_cam_9", ready: true, online: true, readers: [], tracks: ["H264"] });
     return new Response("unexpected", { status: 500 });
   });
 
@@ -83,7 +89,8 @@ test("ensureRecordingPath: add 400 → patch fallback, body đúng hợp đồng
 
   assert.equal(calls[1].method, "PATCH");
   assert.equal(calls[1].url, "http://127.0.0.1:9997/v3/config/paths/patch/dai_cam_9");
-  assert.equal(calls[2].method, "GET"); // confirm bằng /v3/paths/get
+  assert.equal(calls[2].method, "GET"); // confirm bằng CONFIG get — runtime /v3/paths/get không có cờ record
+  assert.equal(calls[2].url, "http://127.0.0.1:9997/v3/config/paths/get/dai_cam_9");
   assert.ok(!JSON.stringify(st).includes("secret"), "state trả về không được rò credential");
 
   // Idempotent: gọi lần 2 cùng flow add-400→patch, vẫn thành công.
@@ -96,7 +103,8 @@ test("ensureRecordingPath: add 400 → patch fallback, body đúng hợp đồng
 test("ensureRecordingPath: add 200 trực tiếp (path mới) → confirm get, không cần patch", async () => {
   const calls = mockMtx((c) => {
     if (c.url.includes("/v3/config/paths/add/")) return new Response("{}", { status: 200 });
-    if (c.url.includes("/v3/paths/get/")) return Response.json({ name: "dai_cam_9", record: true });
+    if (c.url.includes("/v3/config/paths/get/")) return Response.json({ name: "dai_cam_9", record: true });
+    if (c.url.includes("/v3/paths/get/")) return Response.json({ name: "dai_cam_9", ready: true });
     return new Response("unexpected", { status: 500 });
   });
   const st = await ensureRecordingPath({ streamName: "dai_cam_9", sourceUrl: SRC });
@@ -116,15 +124,28 @@ test("ensureRecordingPath: source rỗng → từ chối, tuyệt đối không 
 
 /* ============ (b) disable / remove ============ */
 
-test("disableRecording: PATCH record:false", async () => {
+test("disableRecording: PATCH record:false rồi confirm lại bằng config get", async () => {
   const calls = mockMtx((c) => {
-    assert.match(c.url, /\/v3\/config\/paths\/patch\/dai_cam_9$/);
-    return new Response("{}", { status: 200 });
+    if (c.url.includes("/v3/config/paths/patch/")) return new Response("{}", { status: 200 });
+    if (c.url.includes("/v3/config/paths/get/")) return Response.json({ name: "dai_cam_9", record: false });
+    return new Response("unexpected", { status: 500 });
   });
   const st = await disableRecording("dai_cam_9");
   assert.deepEqual(st, { reachable: true, pathExists: true, recording: false });
   assert.deepEqual(calls[0].body, { record: false });
   assert.equal(calls[0].method, "PATCH");
+  assert.match(calls[1].url, /\/v3\/config\/paths\/get\/dai_cam_9$/, "phải đọc lại config để trả recording thật");
+});
+
+test("disableRecording: PATCH ok nhưng config vẫn record:true ⇒ recording:true + error (không báo tắt giả)", async () => {
+  mockMtx((c) => {
+    if (c.url.includes("/v3/config/paths/patch/")) return new Response("{}", { status: 200 });
+    if (c.url.includes("/v3/config/paths/get/")) return Response.json({ name: "dai_cam_9", record: true });
+    return new Response("unexpected", { status: 500 });
+  });
+  const st = await disableRecording("dai_cam_9");
+  assert.equal(st.recording, true);
+  assert.ok(st.error);
 });
 
 test("removeRecordingPath: DELETE; 404 coi như đã gỡ", async () => {
@@ -138,6 +159,34 @@ test("removeRecordingPath: DELETE; 404 coi như đã gỡ", async () => {
 });
 
 /* ============ (c) trạng thái / lỗi ============ */
+
+test("recorderState: cờ record đọc từ CONFIG get — runtime /v3/paths/get không có record", async () => {
+  // Shape thật đo trên máy verify: runtime get trả available/ready/readers/tracks — KHÔNG có record.
+  // Bản cũ đọc /v3/paths/get ⇒ body.record undefined ⇒ recording:false dù mediaMTX đang ghi (lỗi P0).
+  const calls = mockMtx((c) => {
+    if (c.url.includes("/v3/config/paths/get/"))
+      return Response.json({ name: "dai_cam_9", record: true, recordPath: "F:/rec/%path", recordDeleteAfter: "7d" });
+    if (c.url.includes("/v3/paths/get/"))
+      return Response.json({ name: "dai_cam_9", ready: true, online: true, readers: [], tracks: ["H264"] });
+    return new Response("unexpected", { status: 500 });
+  });
+  const st = await recorderState("dai_cam_9");
+  assert.deepEqual(st, { reachable: true, pathExists: true, recording: true });
+  assert.ok(
+    calls.some((c) => /\/v3\/config\/paths\/get\/dai_cam_9$/.test(c.url)),
+    "phải đọc record từ /v3/config/paths/get, không phải runtime /v3/paths/get",
+  );
+});
+
+test("recorderState: config record:false ⇒ recording:false dù runtime đang ready", async () => {
+  mockMtx((c) => {
+    if (c.url.includes("/v3/config/paths/get/")) return Response.json({ name: "dai_cam_9", record: false });
+    if (c.url.includes("/v3/paths/get/"))
+      return Response.json({ name: "dai_cam_9", ready: true, readers: [{ type: "rtspSession" }] });
+    return new Response("unexpected", { status: 500 });
+  });
+  assert.deepEqual(await recorderState("dai_cam_9"), { reachable: true, pathExists: true, recording: false });
+});
 
 test("recorderState: 404 → reachable:true pathExists:false; 500 → reachable:false", async () => {
   mockMtx(() => new Response("not found", { status: 404 }));
@@ -258,7 +307,7 @@ test("tắt record: persist commit ⇒ PATCH record:false; persist 409 ⇒ khôn
     },
   });
   assert.equal(out.ok, true);
-  assert.deepEqual(events, ["db", "mtx"], "ghi DB trước, recorder theo sau");
+  assert.deepEqual(events, ["db", "mtx", "mtx"], "ghi DB trước; recorder theo sau (PATCH + confirm config get)");
 
   events.length = 0;
   const conflict = await applyRecordPatch({
