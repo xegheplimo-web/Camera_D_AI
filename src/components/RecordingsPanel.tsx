@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, History } from "lucide-react";
 import { api } from "@/lib/client";
 import { fmtTime } from "@/lib/time";
@@ -21,13 +21,15 @@ function playUrl(cameraId: number, startIso: string, extra = ""): string {
 
 /**
  * Tab "Xem lại" của trang Camera: chọn ngày, thanh thời gian theo segment,
- * bấm mốc để phát, tải clip 60s quanh mốc. Panel tự ẩn hoàn toàn khi camera
- * không có bản ghi nào trên đĩa (kiểm tra thật qua API, không disable vô lý).
+ * bấm mốc để phát (offset trong segment qua fragment #t=), tải cả segment.
+ * Panel tự ẩn hoàn toàn khi camera không có bản ghi nào trên đĩa (kiểm tra
+ * thật qua API, không disable vô lý).
  */
 export default function RecordingsPanel({ cameraId }: { cameraId: number }) {
   const [segs, setSegs] = useState<Segment[] | null>(null);
   const [day, setDay] = useState(() => localDay());
-  const [playing, setPlaying] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<{ start: string; offset: number } | null>(null);
+  const tlRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let stop = false;
@@ -54,18 +56,16 @@ export default function RecordingsPanel({ cameraId }: { cameraId: number }) {
   if (!segs?.length) return null;
 
   const days = [...new Set(segs.map((s) => localDay(new Date(s.start))))].sort((a, b) => b.localeCompare(a));
-  const clipHref = playing
-    ? playUrl(cameraId, new Date(Math.max(0, new Date(playing).getTime() - 30_000)).toISOString(), "&duration=60&download=1")
-    : null;
+  const clipHref = playing ? playUrl(cameraId, playing.start, "&download=1") : null;
 
   return (
     <Card title={<span className="flex items-center gap-2"><History className="h-4 w-4 text-cyan-300" /> Xem lại</span>}
       action={<input type="date" value={day} onChange={(e) => setDay(e.target.value)} className="input w-auto py-1 text-xs" aria-label="Chọn ngày" />}>
       <div className="space-y-2">
         {playing && (
-          <video key={playing} src={playUrl(cameraId, playing)} controls autoPlay className="aspect-video w-full rounded-xl bg-black" />
+          <video key={`${playing.start}#${playing.offset}`} src={`${playUrl(cameraId, playing.start)}#t=${playing.offset}`} controls autoPlay className="aspect-video w-full rounded-xl bg-black" />
         )}
-        <div className="relative h-10 w-full rounded-lg bg-slate-800/70" role="group" aria-label="Thời gian có bản ghi">
+        <div ref={tlRef} className="relative h-10 w-full rounded-lg bg-slate-800/70" role="group" aria-label="Thời gian có bản ghi">
           {[0, 6, 12, 18].map((h) => (
             <span key={h} className="absolute -bottom-0.5 text-[9px] text-slate-500" style={{ left: `${(h / 24) * 100}%` }}>{h}h</span>
           ))}
@@ -73,9 +73,16 @@ export default function RecordingsPanel({ cameraId }: { cameraId: number }) {
             const t = new Date(s.start).getTime();
             const left = ((t - dayBounds.t0) / DAY_MS) * 100;
             const width = Math.max(((s.durationSec ?? 300) * 1000 / DAY_MS) * 100, 0.8);
-            const active = playing === s.start;
+            const active = playing?.start === s.start;
             return (
-              <button key={s.file} onClick={() => setPlaying(s.start)}
+              <button key={s.file} onClick={(e) => {
+                // Vị trí bấm trên thanh thời gian → mốc trong ngày → offset giây
+                // trong segment; #t= cho browser seek đúng mốc (server phát cả file).
+                const rect = tlRef.current?.getBoundingClientRect();
+                const frac = rect && rect.width > 0 ? Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) : 0;
+                const offset = Math.max(0, Math.round((dayBounds.t0 + frac * DAY_MS - t) / 100) / 10);
+                setPlaying({ start: s.start, offset });
+              }}
                 title={`${fmtTime(s.start)} · ${(s.sizeBytes / 1048576).toFixed(1)} MB`}
                 aria-label={`Phát từ ${fmtTime(s.start)}`}
                 className={`absolute top-1.5 h-6 rounded-sm ${active ? "bg-cyan-300" : "bg-cyan-500/60 hover:bg-cyan-400"}`}
@@ -94,7 +101,7 @@ export default function RecordingsPanel({ cameraId }: { cameraId: number }) {
             </span>
           )}
           {clipHref && (
-            <a href={clipHref} download className="btn btn-ghost ml-auto py-1 text-xs"><Download className="h-3.5 w-3.5" /> Tải clip 60s quanh mốc</a>
+            <a href={clipHref} download className="btn btn-ghost ml-auto py-1 text-xs"><Download className="h-3.5 w-3.5" /> Tải đoạn này</a>
           )}
         </div>
       </div>
