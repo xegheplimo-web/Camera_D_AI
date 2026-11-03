@@ -7,9 +7,10 @@ import CameraDiscovery, { type DiscoveryControls } from "@/components/CameraDisc
 import EventDetail from "@/components/EventDetail";
 import { Card, EventRow, type EventItem, EventBadge } from "@/components/ui";
 import { api, getDeviceId } from "@/lib/client";
-import { listStatus } from "@/lib/camera/status";
+import { listStatus, type ConnectionState } from "@/lib/camera/status";
 
 type DashCam = Cam & { today: number; recent5m: number };
+type CamHealth = { connection: ConnectionState; sourceKind: string; checkedAt: string };
 
 export default function CameraPage() {
   const [cams, setCams] = useState<DashCam[]>([]);
@@ -20,6 +21,7 @@ export default function CameraPage() {
   const [manual, setManual] = useState({ label: "", note: "", priority: "normal" });
   const [saving, setSaving] = useState(false);
   const [role, setRole] = useState<string>("viewer");
+  const [health, setHealth] = useState<Record<number, CamHealth>>({});
   const discovery = useRef<DiscoveryControls | null>(null);
   const registerDiscovery = useCallback((c: DiscoveryControls | null) => { discovery.current = c; }, []);
 
@@ -59,6 +61,15 @@ export default function CameraPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Trạng thái kết nối thật từ probe server (mediaMTX) — nhãn không đọc cột status DB.
+  useEffect(() => {
+    const tick = async () => { try { setHealth(await api<Record<number, CamHealth>>("/api/cameras/health")); } catch {} };
+    void tick();
+    const t = setInterval(tick, 4000);
+    return () => clearInterval(t);
+  }, []);
+
   useEffect(() => {
     if (camId) loadEvents(camId);
   }, [camId, loadEvents]);
@@ -130,7 +141,7 @@ export default function CameraPage() {
       <div className="space-y-4 xl:col-span-4">
         <Card title="Danh sách camera">
           <div className="space-y-2">
-            {cams.map((c) => { const st = listStatus(c); return (
+            {cams.map((c) => { const st = listStatus(c, health[c.id]?.connection); return (
               <button key={c.id} onClick={() => selectCam(c.id)} className={`flex w-full items-center gap-3 rounded-xl border p-2 text-left ${c.id === camId ? "border-cyan-400/60 bg-cyan-500/10" : "border-white/10 hover:bg-white/5"}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={c.thumbnail ?? ""} alt="" className="h-12 w-20 rounded-lg object-cover" />
