@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { desc, eq, sql, TransactionRollbackError } from "drizzle-orm";
 import { db, pool } from "../src/db";
 import { appSettings, assets, auditLog, cameras, events, extractions } from "../src/db/schema";
-import { purgeDemoData, retentionCutoff, runRetention } from "../src/lib/retention";
+import { purgeDemoData, retentionCutoff, runRetention, unlinkPending } from "../src/lib/retention";
 
 /**
  * REAL-003 — retention + purge demo.
@@ -126,7 +126,12 @@ test("integration: retention xoá đúng hàng quá hạn, giữ asset còn tham
     assert.equal((await tx.select({ id: assets.id }).from(assets).where(eq(assets.id, aRef.id))).length, 1, "asset còn tham chiếu giữ");
     assert.equal((await tx.select({ id: assets.id }).from(assets).where(eq(assets.id, aGone.id))).length, 0, "asset hết tham chiếu + quá hạn bị xoá");
     assert.equal((await tx.select({ id: assets.id }).from(assets).where(eq(assets.id, aLocal.id))).length, 0, "asset local quá hạn bị xoá");
-    assert.equal(existsSync(localFile), false, "file local: phải bị xoá khỏi đĩa");
+    // Two-phase: trong transaction file CHƯA được xoá (nếu tx rollback thì không mất dữ liệu).
+    assert.equal(existsSync(localFile), true, "file phải còn trên đĩa khi tx chưa commit");
+    assert.ok(r.pendingFiles.includes(`local:detect/${SHA}.jpg`), "pendingFiles phải chứa file cần xoá sau commit");
+    const un = await unlinkPending(r.pendingFiles);
+    assert.ok(un.removed >= 1, "unlinkPending phải xoá file sau commit");
+    assert.equal(existsSync(localFile), false, "sau unlinkPending file mới bị xoá");
     assert.equal((await tx.select({ id: assets.id }).from(assets).where(eq(assets.id, aNewOrphan.id))).length, 1, "asset mới mồ côi giữ (age guard)");
 
     // Audit ghi đúng 1 dòng data.retention trong tx

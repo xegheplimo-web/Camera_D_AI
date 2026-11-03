@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { db } from "@/db";
-import { runRetention } from "@/lib/retention";
+import { runRetention, unlinkPending } from "@/lib/retention";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -14,5 +14,7 @@ export async function POST(req: Request) {
   if (a.length !== b.length || !timingSafeEqual(a, b)) return Response.json({ title: "Không được phép", status: 401 }, { status: 401 });
   // Atomic: mọi xoá + audit row commit cùng nhau, hoặc rollback hết.
   const report = await db.transaction(async (tx) => runRetention(tx));
+  // Xoá file SAU commit: rollback không được làm mất ảnh còn tham chiếu.
+  await unlinkPending(report.pendingFiles);
   return Response.json(report);
 }
