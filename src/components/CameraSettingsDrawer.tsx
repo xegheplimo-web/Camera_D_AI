@@ -19,8 +19,8 @@ type CamSettings = {
   privacyMasks: Record<string, unknown>[];
   notifyEnabled: boolean;
   revision: number;
-  /** Server tính — xem GET /settings: cờ nào === true mới được bật; `reason` giải thích cờ khoá. */
-  capabilities?: Partial<Record<FlagKey, boolean>> & { reason?: Record<string, string> };
+  /** Server tính — xem GET /settings: cờ nào === true mới được bật; `reason` giải thích cờ khoá. `audio` = luồng có track âm thanh. */
+  capabilities?: Partial<Record<FlagKey | "audio", boolean>> & { reason?: Record<string, string> };
 };
 
 type KItem = { id: number; title: string; sku: string | null; note: string | null; priceVnd: number | null; createdAt: string };
@@ -345,6 +345,9 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
   };
 
   const flags = flagsOf(s?.features);
+  const recReady = s?.capabilities?.record === true;
+  const recReason = s?.capabilities?.reason?.record;
+  const hasAudio = recReady && s?.capabilities?.audio === true;
   const attachedAssets = new Set((detail?.images ?? []).map((im) => im.assetId));
   const fmtVnd = (v: number | null) => (v === null ? null : `${v.toLocaleString("vi-VN")} ₫`);
 
@@ -605,20 +608,23 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
               <Switch label="Bật thông báo & cảnh báo" checked={s?.notifyEnabled ?? false} disabled={!s || saving} onChange={(v) => void save({ notifyEnabled: v })} />
             </div>
             <div className="flex items-center justify-between gap-2 py-1 text-sm" data-flag="record">
-              <span>Ghi hình liên tục</span>
+              <span className="min-w-0">
+                Ghi hình liên tục
+                {!recReady && recReason ? <span className="block truncate text-[11px] font-normal text-slate-500">{recReason}</span> : null}
+              </span>
               <span className="flex items-center gap-2">
-                <Badge color="slate">Chưa khả dụng</Badge>
-                <Switch label="Ghi hình liên tục" checked={false} disabled />
+                {!recReady && s && <Badge color="slate">Chưa khả dụng</Badge>}
+                <Switch label="Ghi hình liên tục" checked={s?.recordEnabled ?? false} disabled={!recReady || saving} onChange={(v) => void save({ recordEnabled: v })} />
               </span>
             </div>
             <div className="flex items-center justify-between gap-2 py-1 text-sm" data-flag="recordAudio">
               <span>Ghi âm kèm video</span>
               <span className="flex items-center gap-2">
-                <Badge color="slate">Chưa khả dụng</Badge>
-                <Switch label="Ghi âm kèm video" checked={false} disabled />
+                <span className="text-[11px] text-slate-400">{hasAudio ? "Tự động theo luồng camera" : "Camera không có âm thanh"}</span>
+                <Badge color={hasAudio ? "emerald" : "slate"}>{hasAudio ? "Có âm thanh" : "Không có âm thanh"}</Badge>
               </span>
             </div>
-            <p className="text-[11px] text-slate-500">Ghi hình trên máy chủ sẽ mở ở phase sau; hiện chỉ lưu được ảnh chụp & clip trình duyệt.</p>
+            <p className="text-[11px] text-slate-500">Ghi hình chạy trên máy chủ (mediaMTX), không phụ thuộc trình duyệt. Tắt trình duyệt vẫn ghi tiếp.</p>
           </div>
         </Section>
 

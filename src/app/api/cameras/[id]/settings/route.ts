@@ -48,6 +48,7 @@ async function anySegmentOnDisk(cam: CamBasics | null): Promise<boolean> {
 /**
  * Capabilities do server tính mỗi request — tính năng deployment THẬT SỰ có:
  *   record   = mediaMTX trả lời được API (recorder còn sống)
+ *   audio    = runtime tracks của path có codec âm thanh (fail-closed khi không đọc được)
  *   playback = ≥1 segment trên đĩa cho mọi cameraKey của camera, hoặc đang bật ghi
  *   pricing  = luôn false phase này (chưa có model nhận diện sản phẩm)
  *   live/snapshot/ask không có phụ thuộc server-side riêng ⇒ sẵn sàng.
@@ -59,7 +60,7 @@ async function capabilities(cam: CamBasics | null, row: CameraSettingsRow) {
   const reason: Record<string, string> = { pricing: "Chưa có nhận diện sản phẩm" };
   if (!rec.reachable) reason.record = rec.error ? `Recorder không phản hồi (${rec.error})` : "Recorder mediaMTX chưa chạy";
   if (!playback) reason.playback = "Chưa có đoạn ghi nào";
-  return { live: true, playback, snapshot: true, record: rec.reachable, ask: true, pricing: false, reason };
+  return { live: true, playback, snapshot: true, record: rec.reachable, audio: rec.audio, ask: true, pricing: false, reason };
 }
 
 /** GET — bộ cài đặt riêng của camera (lazy-create mặc định nếu chưa có) + capabilities do server tính. */

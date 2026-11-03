@@ -72,7 +72,7 @@ test("ensureRecordingPath: add 400 → patch fallback, body đúng hợp đồng
   });
 
   const st = await ensureRecordingPath({ streamName: "dai_cam_9", sourceUrl: SRC, retentionDays: 14 });
-  assert.deepEqual(st, { reachable: true, pathExists: true, recording: true });
+  assert.deepEqual(st, { reachable: true, pathExists: true, recording: true, audio: false });
 
   assert.equal(calls[0].method, "POST");
   assert.equal(calls[0].url, "http://127.0.0.1:9997/v3/config/paths/add/dai_cam_9");
@@ -97,7 +97,7 @@ test("ensureRecordingPath: add 400 → patch fallback, body đúng hợp đồng
   calls.length = 0;
   const st2 = await ensureRecordingPath({ streamName: "dai_cam_9", sourceUrl: SRC, retentionDays: 14 });
   assert.equal(st2.recording, true);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4); // add + patch + config get + runtime get (probe audio)
 });
 
 test("ensureRecordingPath: add 200 trực tiếp (path mới) → confirm get, không cần patch", async () => {
@@ -109,7 +109,7 @@ test("ensureRecordingPath: add 200 trực tiếp (path mới) → confirm get, k
   });
   const st = await ensureRecordingPath({ streamName: "dai_cam_9", sourceUrl: SRC });
   assert.equal(st.recording, true);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3); // add + config get + runtime get (probe audio)
   assert.equal(calls[0].body!.recordDeleteAfter, "7d", "không truyền retentionDays ⇒ fallback keep");
   assert.equal(calls[1].method, "GET");
   assert.equal(calls[1].body, null, "confirm GET không có body");
@@ -131,7 +131,7 @@ test("disableRecording: PATCH record:false rồi confirm lại bằng config get
     return new Response("unexpected", { status: 500 });
   });
   const st = await disableRecording("dai_cam_9");
-  assert.deepEqual(st, { reachable: true, pathExists: true, recording: false });
+  assert.deepEqual(st, { reachable: true, pathExists: true, recording: false, audio: false });
   assert.deepEqual(calls[0].body, { record: false });
   assert.equal(calls[0].method, "PATCH");
   assert.match(calls[1].url, /\/v3\/config\/paths\/get\/dai_cam_9$/, "phải đọc lại config để trả recording thật");
@@ -154,7 +154,7 @@ test("removeRecordingPath: DELETE; 404 coi như đã gỡ", async () => {
     return new Response("not found", { status: 404 });
   });
   const st = await removeRecordingPath("dai_cam_9");
-  assert.deepEqual(st, { reachable: true, pathExists: false, recording: false });
+  assert.deepEqual(st, { reachable: true, pathExists: false, recording: false, audio: false });
   assert.equal(calls[0].method, "DELETE");
 });
 
@@ -171,11 +171,47 @@ test("recorderState: cờ record đọc từ CONFIG get — runtime /v3/paths/ge
     return new Response("unexpected", { status: 500 });
   });
   const st = await recorderState("dai_cam_9");
-  assert.deepEqual(st, { reachable: true, pathExists: true, recording: true });
+  assert.deepEqual(st, { reachable: true, pathExists: true, recording: true, audio: false });
   assert.ok(
     calls.some((c) => /\/v3\/config\/paths\/get\/dai_cam_9$/.test(c.url)),
     "phải đọc record từ /v3/config/paths/get, không phải runtime /v3/paths/get",
   );
+});
+
+test("recorderState: audio=true khi runtime tracks có codec âm thanh (nguồn cho capabilities.audio)", async () => {
+  // mediaMTX /v3/paths/get trả tracks theo tên codec — ["H264","MPEG-4 Audio"] = có mic.
+  // Route /settings forward st.audio thành capabilities.audio ⇒ drawer hiện "Có âm thanh".
+  mockMtx((c) => {
+    if (c.url.includes("/v3/config/paths/get/")) return Response.json({ name: "dai_cam_9", record: true });
+    if (c.url.includes("/v3/paths/get/"))
+      return Response.json({ name: "dai_cam_9", ready: true, readers: [], tracks: ["H264", "MPEG-4 Audio"] });
+    return new Response("unexpected", { status: 500 });
+  });
+  const st = await recorderState("dai_cam_9");
+  assert.equal(st.recording, true);
+  assert.equal(st.audio, true);
+});
+
+test("recorderState: audio=false khi tracks chỉ có video (H264)", async () => {
+  mockMtx((c) => {
+    if (c.url.includes("/v3/config/paths/get/")) return Response.json({ name: "dai_cam_9", record: true });
+    if (c.url.includes("/v3/paths/get/"))
+      return Response.json({ name: "dai_cam_9", ready: true, readers: [], tracks: ["H264"] });
+    return new Response("unexpected", { status: 500 });
+  });
+  assert.equal((await recorderState("dai_cam_9")).audio, false);
+});
+
+test("recorderState: audio=false khi runtime get 404 — fail-closed, không hứa âm thanh", async () => {
+  // Config tồn tại và đang ghi nhưng runtime chưa có path ⇒ không chứng minh được audio ⇒ false.
+  mockMtx((c) => {
+    if (c.url.includes("/v3/config/paths/get/")) return Response.json({ name: "dai_cam_9", record: true });
+    if (c.url.includes("/v3/paths/get/")) return new Response("not found", { status: 404 });
+    return new Response("unexpected", { status: 500 });
+  });
+  const st = await recorderState("dai_cam_9");
+  assert.equal(st.recording, true);
+  assert.equal(st.audio, false);
 });
 
 test("recorderState: config record:false ⇒ recording:false dù runtime đang ready", async () => {
@@ -185,12 +221,12 @@ test("recorderState: config record:false ⇒ recording:false dù runtime đang r
       return Response.json({ name: "dai_cam_9", ready: true, readers: [{ type: "rtspSession" }] });
     return new Response("unexpected", { status: 500 });
   });
-  assert.deepEqual(await recorderState("dai_cam_9"), { reachable: true, pathExists: true, recording: false });
+  assert.deepEqual(await recorderState("dai_cam_9"), { reachable: true, pathExists: true, recording: false, audio: false });
 });
 
 test("recorderState: 404 → reachable:true pathExists:false; 500 → reachable:false", async () => {
   mockMtx(() => new Response("not found", { status: 404 }));
-  assert.deepEqual(await recorderState("dai_cam_9"), { reachable: true, pathExists: false, recording: false });
+  assert.deepEqual(await recorderState("dai_cam_9"), { reachable: true, pathExists: false, recording: false, audio: false });
 
   mockMtx(() => new Response("boom", { status: 500 }));
   const st = await recorderState("dai_cam_9");
@@ -286,7 +322,7 @@ test("bật record thành công ⇒ persist chạy sau khi ensure", async () => 
     },
   });
   assert.equal(out.ok, true);
-  assert.deepEqual(events, ["mtx", "mtx", "db"], "ensure xong (add + confirm get) mới được ghi DB");
+  assert.deepEqual(events, ["mtx", "mtx", "mtx", "db"], "ensure xong (add + confirm get + runtime get) mới được ghi DB");
 });
 
 test("tắt record: persist commit ⇒ PATCH record:false; persist 409 ⇒ không đụng recorder", async () => {
@@ -307,7 +343,7 @@ test("tắt record: persist commit ⇒ PATCH record:false; persist 409 ⇒ khôn
     },
   });
   assert.equal(out.ok, true);
-  assert.deepEqual(events, ["db", "mtx", "mtx"], "ghi DB trước; recorder theo sau (PATCH + confirm config get)");
+  assert.deepEqual(events, ["db", "mtx", "mtx", "mtx"], "ghi DB trước; recorder theo sau (PATCH + config get + runtime get)");
 
   events.length = 0;
   const conflict = await applyRecordPatch({
