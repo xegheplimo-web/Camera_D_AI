@@ -14,12 +14,14 @@ import { DetectorLease, leaseKeyFor, LEASE_CLASS } from "../src/lib/camera/detec
 import { recordDetection } from "../src/lib/camera/detector";
 import { ensureDefaultTenant } from "./helpers/tenant";
 
+// ID tổng hợp (990001/990002) — KHÔNG dùng id camera thật: production có thể đang
+// giữ advisory lock của camera thật và làm test đỏ giả.
 process.env.DETECTOR_LEASE_RETRY_MS = "0"; // test không phải chờ 30 s
 process.env.DETECT_MOTION_THRESHOLD ??= "0.008";
 process.env.DETECT_COOLDOWN_SECONDS ??= "60";
 
 test("unit: leaseKeyFor trả (classid, objid) và từ chối id ngoài phạm vi", () => {
-  assert.deepEqual(leaseKeyFor(441), { classid: LEASE_CLASS, objid: 441 });
+  assert.deepEqual(leaseKeyFor(990001), { classid: LEASE_CLASS, objid: 990001 });
   for (const bad of [0, -1, 1.5, Number.NaN, 2 ** 31]) {
     assert.throws(() => leaseKeyFor(bad), /không hợp lệ/);
   }
@@ -27,7 +29,7 @@ test("unit: leaseKeyFor trả (classid, objid) và từ chối id ngoài phạm 
 
 test("unit: lease rỗng — owns=false, status sạch", () => {
   const lease = new DetectorLease();
-  assert.equal(lease.owns(441), false);
+  assert.equal(lease.owns(990001), false);
   assert.deepEqual(lease.status, { connected: false, owned: [], standby: [], lastAttemptAt: null, lastError: null });
 });
 
@@ -35,19 +37,19 @@ test("integration: hai lease cùng camera — chỉ một owner, lease kia stand
   const a = new DetectorLease();
   const b = new DetectorLease();
   try {
-    await a.ensure([441]);
-    assert.equal(a.owns(441), true, "lease A phải giữ lock");
-    assert.deepEqual(a.status.owned, [441]);
+    await a.ensure([990001]);
+    assert.equal(a.owns(990001), true, "lease A phải giữ lock");
+    assert.deepEqual(a.status.owned, [990001]);
 
-    await b.ensure([441]);
-    assert.equal(b.owns(441), false, "lease B không được giữ lock thứ hai");
-    assert.deepEqual(b.status.standby, [441]);
+    await b.ensure([990001]);
+    assert.equal(b.owns(990001), false, "lease B không được giữ lock thứ hai");
+    assert.deepEqual(b.status.standby, [990001]);
     assert.equal(b.status.connected, true, "B vẫn kết nối DB, chỉ không sở hữu");
 
     // A chết ⇒ B tiếp quản được (advisory lock nhả theo session).
     await a.close();
-    await b.ensure([441]);
-    assert.equal(b.owns(441), true, "B phải tiếp quản sau khi A đóng");
+    await b.ensure([990001]);
+    assert.equal(b.owns(990001), true, "B phải tiếp quản sau khi A đóng");
   } finally {
     await a.close();
     await b.close();
@@ -58,14 +60,14 @@ test("integration: ensure([1,2]) rồi ensure([2]) nhả lock của camera đã 
   const a = new DetectorLease();
   const c = new DetectorLease();
   try {
-    await a.ensure([441, 442]);
-    assert.deepEqual(a.status.owned, [441, 442]);
+    await a.ensure([990001, 990002]);
+    assert.deepEqual(a.status.owned, [990001, 990002]);
 
-    await a.ensure([442]);
-    assert.deepEqual(a.status.owned, [442], "camera 441 phải được nhả");
+    await a.ensure([990002]);
+    assert.deepEqual(a.status.owned, [990002], "camera 990001 phải được nhả");
 
-    await c.ensure([441]);
-    assert.equal(c.owns(441), true, "lease khác phải acquire được 441 sau khi nhả");
+    await c.ensure([990001]);
+    assert.equal(c.owns(990001), true, "lease khác phải acquire được 990001 sau khi nhả");
   } finally {
     await a.close();
     await c.close();

@@ -10,4 +10,8 @@ export async function register() {
   // Retention: chạy ngay 1 lần rồi lặp mỗi 24h; no-op khi retentionDays<=0.
   const { startRetention } = await import("@/lib/retention");
   startRetention();
+  // T-1348: mediaMTX chỉ giữ path trong runtime config — restart là mất, nên đối
+  // chiếu lại DB ngay khi khởi động và lặp mỗi 60 s.
+  const { startRecordingReconcile } = await import("@/lib/camera/reconcile");
+  startRecordingReconcile();
 }

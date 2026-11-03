@@ -438,7 +438,7 @@ export async function detectorStatus() {
   return {
     running: state.running,
     envEnabled: cfg.envEnabled,
-    lease: { clusterLocks, ownerCount: new Set(clusterLocks).size },
+    lease: { clusterLocks, lockedCameraCount: clusterLocks.length },
     leaseProcess: lease.status, // chỉ để chẩn đoán; có thể trống ở bản build này
     standbyCameras,
     settingEnabled: state.settingEnabled,
