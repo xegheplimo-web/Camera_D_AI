@@ -28,6 +28,7 @@ import { and, eq, inArray, lt, not, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { appSettings, assets, auditLog, events, extractions } from "@/db/schema";
 import { localAssetPath } from "@/lib/camera/detector";
+import { runVideoRetention } from "@/lib/recordings";
 
 export type DbExecutor = Pick<typeof db, "select" | "insert" | "update" | "delete" | "execute">;
 export type AuditActor = { name?: string | null; role?: string | null; device?: string | null };
@@ -220,6 +221,10 @@ async function runSafe() {
     const report = await db.transaction(async (tx) => runRetention(tx));
     const { failed } = await unlinkPending(report.pendingFiles);
     if (failed) console.warn(`[retention] ${failed} file không xoá được — để lại đĩa, sẽ dọn lần sau`);
+    // Video mediaMTX: chạy SAU commit (file trên đĩa không rollback được), theo
+    // camera_settings.retention_days → cameras.retention_days → global.
+    const rec = await runVideoRetention();
+    if (rec.deleted) console.info(`[retention] đã xoá ${rec.deleted} segment video (${rec.bytes} bytes) trong ${rec.dirs} thư mục`);
   } catch (e) {
     console.error("[retention]", e instanceof Error ? e.message : e);
   }

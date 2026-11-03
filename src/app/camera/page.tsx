@@ -6,6 +6,7 @@ import CameraView, { type Cam } from "@/components/CameraView";
 import CameraDiscovery, { type DiscoveryControls } from "@/components/CameraDiscovery";
 import CameraSettingsDrawer from "@/components/CameraSettingsDrawer";
 import EventDetail from "@/components/EventDetail";
+import RecordingsPanel from "@/components/RecordingsPanel";
 import { Card, EventRow, type EventItem, EventBadge } from "@/components/ui";
 import { api, getDeviceId } from "@/lib/client";
 import { listStatus, type ConnectionState } from "@/lib/camera/status";
@@ -122,6 +123,7 @@ export default function CameraPage() {
           </select>
         </div>
         {cam ? <CameraView cam={cam} onEvent={refresh} onSettings={canManage ? () => setSettingsId(cam.id) : undefined} /> : <div className="aspect-video animate-pulse rounded-xl bg-slate-800/50" />}
+        {camId ? <RecordingsPanel cameraId={camId} /> : null}
         <CameraDiscovery cameras={cams} onAdded={onCameraAdded} canManage={canManage} onControlsReady={registerDiscovery} />
 
         <Card title="Dòng thời gian 24 giờ">
