@@ -188,8 +188,8 @@ export default function SettingsPage() {
       {isOwner && (
         <div className="glass flex flex-wrap items-center gap-3 p-4">
           <Cpu className="h-6 w-6 text-cyan-300" />
-          <div className="flex-1"><div className="font-semibold">Hermes & AI Workers</div><p className="text-xs text-[#a9bad2]">Gateway xử lý nhanh, Hermes lập kế hoạch, worker thực hiện. Không tải model xuống ứng dụng.</p></div>
-          <Link href="/admin" className="btn btn-primary text-xs">Mở Engineering Console →</Link>
+          <div className="flex-1"><div className="font-semibold">Trợ lý AI</div><p className="text-xs text-[#a9bad2]">Trợ lý AI xử lý câu hỏi, đọc ảnh và tóm tắt dữ liệu ngay trên máy chủ. Không tải model xuống thiết bị.</p></div>
+          <Link href="/admin" className="btn btn-primary text-xs">Chi tiết kỹ thuật →</Link>
         </div>
       )}
       <Card title="Thiết lập lần đầu">

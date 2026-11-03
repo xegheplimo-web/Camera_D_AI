@@ -14,8 +14,8 @@ export default async function AdminPage() {
     <div className="space-y-4">
       <div className="glass mx-auto flex max-w-[1500px] flex-wrap items-center gap-3 p-4">
         <div className="flex-1">
-          <div className="font-semibold">Engineering Console · chỉ chủ hệ thống</div>
-          <p className="text-xs text-[#a9bad2]">Hạ tầng nền tảng: điều phối AI, worker, design freeze. Không hiển thị trong điều hướng khách hàng.</p>
+          <div className="font-semibold">Bảng kỹ thuật · chỉ chủ hệ thống</div>
+          <p className="text-xs text-[#a9bad2]">Hạ tầng nền tảng: trợ lý AI, bộ xử lý chuyên môn, design freeze. Không hiển thị trong điều hướng khách hàng.</p>
         </div>
         <Link href="/design" className="btn btn-ghost text-xs"><Palette className="h-3.5 w-3.5" /> Design Freeze →</Link>
       </div>

@@ -54,7 +54,7 @@ try {
   for (const [width, height] of [[1440, 1000], [768, 1024], [390, 844], [360, 800]]) {
     await page.setViewportSize({ width, height });
     await page.goto(base + "/admin");
-    await page.getByRole("heading", { name: "Điều phối AI", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Trạng thái xử lý", exact: true }).waitFor();
     await page.getByText("Hai đường xử lý, một trải nghiệm", { exact: true }).waitFor();
     await page.waitForTimeout(500);
     const overflows = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
