@@ -7,10 +7,17 @@
  * traversal trong localAssetPath). events tôn trọng cameras.retention_days
  * (NULL/0 → global, >0 → override số ngày giữ của riêng camera).
  *
+ * Ảnh trí nhớ KHÔNG dùng chung chính sách xoá với ảnh sự kiện: asset chỉ bị
+ * xoá khi mất hết tham chiếu events/extractions VÀ knowledge_images
+ * (knowledge_images.asset_id là FK ON DELETE CASCADE — xoá asset kéo mất
+ * luôn hàng tham chiếu). Số asset được tri thức cứu báo trong
+ * assetsKeptByKnowledge + chi tiết audit (keptKnowledge=N).
+ *
  * purgeDemoData(): xoá toàn bộ dữ liệu mẫu theo thứ tự FK an toàn
  * extractions → events → assets; KHÔNG đụng hàng source<>'demo'. Con trỏ
  * asset_id/event_id của hàng live vào dữ liệu demo bị gỡ về NULL thay vì
- * để dangling — hàng live tự thân được giữ nguyên.
+ * để dangling — hàng live tự thân được giữ nguyên. Asset demo đang được
+ * knowledge_images dùng cũng được giữ (cùng lý do cascade trên).
  *
  * Cả hai hàm nhận `executor` mặc định là pool db; truyền transaction để
  * rollback trong test hoặc gom atomic với caller. Mỗi hàm ghi đúng 1 dòng
@@ -30,9 +37,20 @@ export function retentionCutoff(now: Date, days: number): Date {
   return new Date(now.getTime() - days * 86_400_000);
 }
 
-/** Asset không còn được bất kỳ event/extraction nào tham chiếu. */
-const ORPHAN_ASSET = sql`${assets.id} not in (select asset_id from events where asset_id is not null)
-  and ${assets.id} not in (select asset_id from extractions where asset_id is not null)`;
+/** Asset còn được event tham chiếu. */
+const EVENT_REF = sql`${assets.id} in (select asset_id from events where asset_id is not null)`;
+
+/** Asset còn được extraction tham chiếu (extractions.asset_id NOT NULL — không gỡ con trỏ được). */
+const EXTRACTION_REF = sql`${assets.id} in (select asset_id from extractions where asset_id is not null)`;
+
+/** Asset được danh mục tri thức giữ — kể cả hàng soft delete vì cascade xoá hàng thật. */
+const KNOWLEDGE_REF = sql`${assets.id} in (select asset_id from knowledge_images where asset_id is not null)`;
+
+/** Asset không còn được bất kỳ event/extraction nào tham chiếu (chưa xét tri thức). */
+const UNREFERENCED_ASSET = sql`not (${EVENT_REF}) and not (${EXTRACTION_REF})`;
+
+/** Asset mồ côi thật sự — không event/extraction/danh mục tri thức nào còn giữ. */
+const ORPHAN_ASSET = sql`${UNREFERENCED_ASSET} and not (${KNOWLEDGE_REF})`;
 
 /** Xoá file local: do app quản lý; chỉ path hợp lệ dưới dataDir() (chặn traversal). */
 async function removeAssetFile(url: string | null): Promise<boolean> {
@@ -50,6 +68,8 @@ export type RetentionReport = {
   events: number;
   extractions: number;
   assets: number;
+  /** Asset quá hạn lẽ ra bị xoá nhưng được giữ vì knowledge_images đang tham chiếu. */
+  assetsKeptByKnowledge: number;
   bytes: number;
 };
 
@@ -57,7 +77,7 @@ export async function runRetention(executor: DbExecutor = db): Promise<Retention
   // Đọc qua executor để test trong transaction thấy giá trị vừa set.
   const [row] = await executor.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, "retentionDays"));
   const days = typeof row?.value === "number" && Number.isFinite(row.value) ? row.value : 30;
-  if (days <= 0) return { retentionDays: days, cutoff: null, events: 0, extractions: 0, assets: 0, bytes: 0, pendingFiles: [] };
+  if (days <= 0) return { retentionDays: days, cutoff: null, events: 0, extractions: 0, assets: 0, assetsKeptByKnowledge: 0, bytes: 0, pendingFiles: [] };
   const cutoff = retentionCutoff(new Date(), days);
 
   // 1. Extractions hết hạn (lá của đồ thị tham chiếu — không bảng nào trỏ tới).
@@ -89,12 +109,19 @@ export async function runRetention(executor: DbExecutor = db): Promise<Retention
     await executor.delete(assets).where(inArray(assets.id, orphans.map((a) => a.id)));
   }
 
+  // Asset quá hạn không còn event/extraction nhưng được tri thức giữ — lẽ ra đã xoá nếu không có guard.
+  const [keptKn] = await executor
+    .select({ c: sql<number>`count(*)::int` })
+    .from(assets)
+    .where(and(lt(assets.createdAt, cutoff), UNREFERENCED_ASSET, KNOWLEDGE_REF));
+
   const report: RetentionReport = {
     retentionDays: days,
     cutoff: cutoff.toISOString(),
     events: delEv.length,
     extractions: delEx.length,
     assets: orphans.length,
+    assetsKeptByKnowledge: keptKn.c,
     bytes,
     pendingFiles,
   };
@@ -102,12 +129,21 @@ export async function runRetention(executor: DbExecutor = db): Promise<Retention
     actor: "system",
     action: "data.retention",
     targetType: "events|extractions|assets",
-    detail: `cutoff=${report.cutoff} events=${report.events} extractions=${report.extractions} assets=${report.assets} bytes=${report.bytes}`,
+    detail: `cutoff=${report.cutoff} events=${report.events} extractions=${report.extractions} assets=${report.assets} keptKnowledge=${report.assetsKeptByKnowledge} bytes=${report.bytes}`,
   });
   return report;
 }
 
-export type PurgeReport = { extractions: number; events: number; assets: number; assetsKept: number; bytes: number; pendingFiles: string[] };
+export type PurgeReport = {
+  extractions: number;
+  events: number;
+  assets: number;
+  assetsKept: number;
+  /** Asset demo lẽ ra bị xoá nhưng được giữ vì knowledge_images đang tham chiếu (đã nằm trong assetsKept). */
+  assetsKeptByKnowledge: number;
+  bytes: number;
+  pendingFiles: string[];
+};
 
 export async function purgeDemoData(executor: DbExecutor = db, actor: AuditActor = {}): Promise<PurgeReport> {
   // FK-safe: extractions và events là phía tham chiếu → xoá trước; assets sau.
@@ -118,12 +154,17 @@ export async function purgeDemoData(executor: DbExecutor = db, actor: AuditActor
   await executor.execute(sql`update events set asset_id = null
     where asset_id is not null and asset_id in (select id from assets where origin = 'demo')`);
   // extractions.asset_id NOT NULL → không thể gỡ: asset demo còn được live extraction
-  // tham chiếu phải giữ lại, báo trong assetsKept.
+  // tham chiếu phải giữ lại, báo trong assetsKept. Asset demo được knowledge_images
+  // giữ cũng phải giữ (cascade sẽ mất hàng tham chiếu) — đếm trong assetsKeptByKnowledge.
   const [tot] = await executor.select({ c: sql<number>`count(*)::int` }).from(assets).where(eq(assets.origin, "demo"));
+  const [keptKn] = await executor
+    .select({ c: sql<number>`count(*)::int` })
+    .from(assets)
+    .where(and(eq(assets.origin, "demo"), not(EXTRACTION_REF), KNOWLEDGE_REF));
   const demoAssets = await executor
     .select({ id: assets.id, url: assets.url, sizeBytes: assets.sizeBytes })
     .from(assets)
-    .where(and(eq(assets.origin, "demo"), not(sql`${assets.id} in (select asset_id from extractions where asset_id is not null)`)));
+    .where(and(eq(assets.origin, "demo"), not(EXTRACTION_REF), not(KNOWLEDGE_REF)));
   let bytes = 0;
   const pendingFiles: string[] = [];
   for (const a of demoAssets) {
@@ -134,14 +175,14 @@ export async function purgeDemoData(executor: DbExecutor = db, actor: AuditActor
     await executor.delete(assets).where(inArray(assets.id, demoAssets.map((a) => a.id)));
   }
 
-  const report: PurgeReport = { extractions: delEx.length, events: delEv.length, assets: demoAssets.length, assetsKept: tot.c - demoAssets.length, bytes, pendingFiles };
+  const report: PurgeReport = { extractions: delEx.length, events: delEv.length, assets: demoAssets.length, assetsKept: tot.c - demoAssets.length, assetsKeptByKnowledge: keptKn.c, bytes, pendingFiles };
   await executor.insert(auditLog).values({
     actor: actor.name ?? null,
     actorRole: actor.role ?? null,
     device: actor.device ?? null,
     action: "data.purge_demo",
     targetType: "events|extractions|assets",
-    detail: `events=${report.events} extractions=${report.extractions} assets=${report.assets} kept=${report.assetsKept} bytes=${report.bytes}`,
+    detail: `events=${report.events} extractions=${report.extractions} assets=${report.assets} kept=${report.assetsKept} keptKnowledge=${report.assetsKeptByKnowledge} bytes=${report.bytes}`,
   });
   return report;
 }
