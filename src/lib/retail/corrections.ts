@@ -69,18 +69,13 @@ async function ensureImage(tenantId: number, itemId: number, assetId: number, us
   return Number(created.id);
 }
 
-export async function recordCorrection(input: CorrectionInput): Promise<CorrectionResult> {
+/**
+ * Chỉ ghi một dòng lịch sử (không encode, không tạo ảnh) — dùng khi ảnh đã được
+ * gắn và index ở nơi khác, và để test được tính append-only mà không cần model.
+ */
+export async function insertCorrection(input: Omit<CorrectionInput, "buffer">): Promise<number> {
   await assertItem(input.tenantId, input.itemId);
   if (input.predictedItemId != null) await assertItem(input.tenantId, input.predictedItemId);
-
-  let imageId = input.imageId ?? null;
-  if (imageId == null) {
-    if (input.assetId == null) throw new HttpError(400, "MISSING_ASSET", "Cần assetId để gắn ảnh vào sản phẩm.");
-    imageId = await ensureImage(input.tenantId, input.itemId, input.assetId, input.userId ?? null);
-  }
-
-  const { vec } = await encodeImage(input.buffer);
-  await upsertEmbedding({ tenantId: input.tenantId, itemId: input.itemId, imageId, vec });
 
   const [row] = await db
     .insert(productCorrections)
@@ -88,7 +83,7 @@ export async function recordCorrection(input: CorrectionInput): Promise<Correcti
       tenantId: input.tenantId,
       itemId: input.itemId,
       predictedItemId: input.predictedItemId ?? null,
-      imageId,
+      imageId: input.imageId ?? null,
       assetId: input.assetId ?? null,
       score: input.score ?? null,
       scoreSecond: input.scoreSecond ?? null,
@@ -98,8 +93,22 @@ export async function recordCorrection(input: CorrectionInput): Promise<Correcti
       createdBy: input.userId ?? null,
     })
     .returning({ id: productCorrections.id });
+  return Number(row.id);
+}
 
-  return { correctionId: Number(row.id), imageId, embedded: true };
+export async function recordCorrection(input: CorrectionInput): Promise<CorrectionResult> {
+  await assertItem(input.tenantId, input.itemId);
+  let imageId = input.imageId ?? null;
+  if (imageId == null) {
+    if (input.assetId == null) throw new HttpError(400, "MISSING_ASSET", "Cần assetId để gắn ảnh vào sản phẩm.");
+    imageId = await ensureImage(input.tenantId, input.itemId, input.assetId, input.userId ?? null);
+  }
+
+  const { vec } = await encodeImage(input.buffer);
+  await upsertEmbedding({ tenantId: input.tenantId, itemId: input.itemId, imageId, vec });
+
+  const correctionId = await insertCorrection({ ...input, imageId });
+  return { correctionId, imageId, embedded: true };
 }
 
 export type CorrectionStats = {
