@@ -1,0 +1,19 @@
+Camera D-AI
+Copyright (C) 2026 Camera D-AI contributors
+
+Phần mã nguồn của dự án: GNU Affero General Public License v3.0 (xem LICENSE).
+
+## Thành phần bên thứ ba
+
+| Thành phần | Giấy phép | Ghi chú |
+|---|---|---|
+| sharp / libvips (`@img/sharp-*`, `@img/sharp-libvips-*`) | Apache-2.0 / LGPL-3.0-or-later | Dùng dạng thư viện động, không sửa đổi. Nguồn libvips: https://github.com/libvips/libvips |
+| mediaMTX | MIT | Chạy như tiến trình riêng, không nhúng mã |
+| go2rtc | MIT | Chạy như tiến trình riêng, không nhúng mã |
+| FFmpeg | **Không kèm theo dự án** | Ứng dụng gọi `ffmpeg` nếu có trong hệ thống. Bản ffmpeg có `--enable-gpl` là GPLv3 và do người dùng cài đặt; dự án không phân phối binary này |
+| PostgreSQL | PostgreSQL License | Cơ sở dữ liệu bên ngoài |
+| Next.js, React, Drizzle ORM và các gói npm khác | MIT / Apache-2.0 / ISC / MPL-2.0 / BSD | Xem `package-lock.json`; giữ nguyên thông báo bản quyền của từng gói |
+
+## Ảnh minh hoạ
+
+`public/cams/cam1..4.jpg` do dự án tự tạo (hình vector xuất sang JPEG), không dùng ảnh của bên thứ ba.
