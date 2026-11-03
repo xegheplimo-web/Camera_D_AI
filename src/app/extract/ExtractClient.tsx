@@ -84,6 +84,7 @@ export default function ExtractClient() {
   const [pulseUpload, setPulseUpload] = useState(false);
   const [appliedPreset, setAppliedPreset] = useState<string | null>(null);
   const [captureCam, setCaptureCam] = useState<CamLite | null>(null);
+  const [sourceCam, setSourceCam] = useState<CamLite | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const camFileRef = useRef<HTMLInputElement>(null);
@@ -156,6 +157,7 @@ export default function ExtractClient() {
     pollRef.current?.abort();
     setJob(null);
     setAssetId(null);
+    setSourceCam(null);
     setNote(""); setTitle(""); setTags("");
     setAppliedPreset(null);
     setProductName(""); setSku(""); setPriceVnd(""); setQuantity("");
@@ -166,14 +168,15 @@ export default function ExtractClient() {
     setZoom(1);
   };
 
-  const ingest = async (dataUrl: string, w: number, h: number, name: string, origin: string) => {
+  const ingest = async (dataUrl: string, w: number, h: number, name: string, origin: string, cam: CamLite | null = null) => {
     resetForNewImage();
+    setSourceCam(cam);
     setImgUrl(dataUrl);
     setDims({ w, h });
     setFileName(name);
     setStatus("IMAGE_READY");
     try {
-      const r = await uploadDataUrl(dataUrl, { width: w, height: h, origin });
+      const r = await uploadDataUrl(dataUrl, { width: w, height: h, origin, cameraId: cam?.id ?? null });
       setAssetId(r.id);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Tải ảnh thất bại");
@@ -192,12 +195,14 @@ export default function ExtractClient() {
   };
 
   const reingestCanvas = async (c: HTMLCanvasElement, name: string) => {
+    const cam = sourceCam;
     resetForNewImage();
+    setSourceCam(cam);
     setImgUrl(c.toDataURL("image/jpeg", 0.92));
     setDims({ w: c.width, h: c.height });
     setFileName(name);
     setStatus("IMAGE_READY");
-    const r = await uploadDataUrl(c.toDataURL("image/jpeg", 0.92), { width: c.width, height: c.height, origin: "capture" });
+    const r = await uploadDataUrl(c.toDataURL("image/jpeg", 0.92), { width: c.width, height: c.height, origin: "capture", cameraId: cam?.id ?? null });
     setAssetId(r.id);
   };
 
@@ -228,7 +233,7 @@ export default function ExtractClient() {
     if (!v || !v.videoWidth) return;
     const c = drawToCanvas(v, v.videoWidth, v.videoHeight, 1600);
     setCaptureOpen(false);
-    await ingest(c.toDataURL("image/jpeg", 0.9), c.width, c.height, `chup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`, "capture");
+    await ingest(c.toDataURL("image/jpeg", 0.9), c.width, c.height, `chup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`, "capture", captureCam?.sourceType === "webcam" ? captureCam : null);
   };
 
   const pickPreset = (type: string, presetNote: string) => {
@@ -249,7 +254,7 @@ export default function ExtractClient() {
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Không lấy được khung hình từ camera")), 9000)),
       ]);
       const c = drawToCanvas(img, img.naturalWidth, img.naturalHeight, 1600);
-      await ingest(c.toDataURL("image/jpeg", 0.9), c.width, c.height, `chup_${captureCam.name}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`, "capture");
+      await ingest(c.toDataURL("image/jpeg", 0.9), c.width, c.height, `chup_${captureCam.name}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`, "capture", captureCam);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Không chụp được khung hình camera");
     }
@@ -356,6 +361,7 @@ export default function ExtractClient() {
 
   const openHistory = (h: ExRow) => {
     pollRef.current?.abort(); setJob(null); setProgress("");
+    setSourceCam(null);
     setErr(h.status === "PROCESSING" ? "Ảnh này có tác vụ đang chạy. Quay lại sau để xem kết quả." : null);
     setAssetId(h.assetId);
     setImgUrl(h.thumb);
@@ -458,8 +464,9 @@ export default function ExtractClient() {
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />
             <input ref={camFileRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { onFile(e.target.files?.[0], "capture"); e.target.value = ""; }} />
           </div>
-          <div className="text-xs text-slate-400">
-            {fileName ? <>Tệp: <span className="text-slate-200">{fileName}</span>{dims && <> · {dims.w}×{dims.h}</>}{assetId && <> · Asset #{assetId}</>}{roi && <> · Vùng: {(roi.w * 100).toFixed(0)}%×{(roi.h * 100).toFixed(0)}%</>}</> : "JPEG/PNG/WEBP, tối đa 25 MB. Ảnh được băm SHA-256 và lưu vào trí nhớ."}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            {fileName ? <span>Tệp: <span className="text-slate-200">{fileName}</span>{dims && <> · {dims.w}×{dims.h}</>}{assetId && <> · Asset #{assetId}</>}{roi && <> · Vùng: {(roi.w * 100).toFixed(0)}%×{(roi.h * 100).toFixed(0)}%</>}</span> : "JPEG/PNG/WEBP, tối đa 25 MB. Ảnh được băm SHA-256 và lưu vào trí nhớ."}
+            {sourceCam && <Badge color="cyan">Nguồn: {sourceCam.name}</Badge>}
           </div>
         </section>
 

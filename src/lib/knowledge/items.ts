@@ -39,7 +39,7 @@ function parseCustom(v: unknown): Record<string, unknown> {
   return v as Record<string, unknown>;
 }
 
-async function cameraInTenant(tenantId: number, cameraId: unknown): Promise<number> {
+export async function cameraInTenant(tenantId: number, cameraId: unknown): Promise<number> {
   const id = Number(cameraId);
   if (!Number.isSafeInteger(id) || id <= 0) throw new HttpError(400, "INVALID_CAMERA", "cameraId phải là số nguyên dương.");
   const [cam] = await db.select({ id: cameras.id }).from(cameras)
