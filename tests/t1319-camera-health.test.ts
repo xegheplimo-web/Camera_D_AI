@@ -92,25 +92,51 @@ test("effectiveStatus: webcam → client, demo → simulated, không cần gọi
   assert.equal(fetchCalls, 0, "webcam/demo không được phép probe mediaMTX");
 });
 
-test("effectiveStatus: rtsp dò theo streamName và basename của nguồn RTSP (path mediaMTX)", async () => {
+test("effectiveStatus: chỉ probe đúng streamName — không đoán basename (tránh online giả)", async () => {
   mockPaths([{ name: "cam", ready: true, online: true }]);
   assert.equal(await effectiveStatus({ sourceType: "rtsp", streamName: "cam" }), "online");
 
-  // Camera đăng ký qua go2rtc: stream_name=dai_cam_N nhưng path mediaMTX là basename URL.
-  const cam = { sourceType: "rtsp", streamName: "dai_cam_7", sourceCiphertext: encryptSource("rtsp://192.168.99.10:8554/cam") };
-  assert.equal(await effectiveStatus(cam), "online", "dai_cam_N phải resolve về path mediaMTX của nguồn");
+  // Camera khác dùng chung nguồn .../cam nhưng streamName=dai_cam_7: path "cam" KHÔNG phải của nó.
+  const cam = { sourceType: "rtsp", streamName: "dai_cam_7" };
+  assert.equal(await effectiveStatus(cam), "offline", "không được khớp path của camera khác");
 
   clearProbeCache();
-  mockPaths([{ name: "cam", ready: false, online: false }]);
+  mockPaths([{ name: "dai_cam_7", ready: true, online: true }]);
+  assert.equal(await effectiveStatus(cam), "online", "path đúng tên camera thì online");
+
+  clearProbeCache();
+  mockPaths([{ name: "dai_cam_7", ready: false, online: false }]);
   assert.equal(await effectiveStatus(cam), "offline", "path tồn tại nhưng publisher chết → offline");
 
+  clearProbeCache();
   mockFetchError();
-  clearProbeCache();
-  assert.equal(await effectiveStatus(cam), "unknown", "mediaMTX API không bắt được → unknown");
+  assert.equal(await effectiveStatus(cam), "unknown", "không gọi được nguồn nào → unknown");
 
-  mockPaths([]);
   clearProbeCache();
+  mockPaths([]);
   assert.equal(await effectiveStatus({ sourceType: "rtsp", streamName: null }), "offline");
+});
+
+test("effectiveStatus: go2rtc (đường detector) sống thì online dù mediaMTX chưa có path", async () => {
+  process.env.GO2RTC_API = "http://127.0.0.1:1984";
+  try {
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/api/frame.jpeg")) return new Response("jpeg", { status: 200 });
+      return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    }) as typeof fetch;
+    assert.equal(await effectiveStatus({ sourceType: "rtsp", streamName: "dai_cam_34" }), "online");
+
+    clearProbeCache();
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/api/frame.jpeg")) return new Response("no", { status: 404 });
+      return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    }) as typeof fetch;
+    assert.equal(await effectiveStatus({ sourceType: "rtsp", streamName: "dai_cam_34" }), "offline");
+  } finally {
+    delete process.env.GO2RTC_API;
+  }
 });
 
 test("sourceKind: rtsp → physical, webcam → webcam, demo → simulated", () => {

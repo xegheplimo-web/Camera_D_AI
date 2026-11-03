@@ -4,7 +4,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { audit } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
 import { ensureSeed, reseed, demoSeedEnabled } from "@/lib/seed";
-import { purgeDemoData } from "@/lib/retention";
+import { purgeDemoData, unlinkPending } from "@/lib/retention";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +59,8 @@ export async function POST(req: Request) {
     // FK-safe trong purgeDemoData: extractions demo → events demo → assets origin='demo'
     // (gỡ con trỏ từ hàng live trước; asset demo còn được live extraction trỏ thì giữ).
     const report = await db.transaction(async (tx) => purgeDemoData(tx, { name: auth.session.name, role: auth.session.role, device: auth.session.device }));
+    // Xoá file sau commit — rollback không được để lại hàng trỏ file đã mất.
+    await unlinkPending(report.pendingFiles);
     return Response.json({ ok: true, ...report });
   }
   if (action === "clear_demo") {
