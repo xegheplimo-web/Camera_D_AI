@@ -26,7 +26,7 @@ const SCREENS: { id: string; name: string; states: string; status: Status; note:
   { id: "01", name: "Home — Trang chủ", states: "empty/loading/data/offline/error/thiếu bằng chứng", status: "met", note: "Robot + 3 vùng; thẻ đo lường camera online, dung lượng, lần đồng bộ, dữ liệu mẫu." },
   { id: "02", name: "Camera Live", states: "live/mất kết nối/khôi phục/không quyền/mic-cam bị từ chối", status: "partial", note: "Webcam thật + overlay + vạch đếm. Ghi 24/7 và RTSP chưa có (cần dịch vụ nền)." },
   { id: "03", name: "Ảnh & Trích xuất", states: "EMPTY→IMAGE_READY→ANNOTATED→PROCESSING→REVIEW→VERIFIED/FAILED", status: "met", note: "Crop/rotate/ROI, OCR, đối tượng, so sánh với ảnh gốc, đánh dấu AI vs đã sửa." },
-  { id: "04", name: "Hỏi đáp giọng nói", states: "idle/nghe/ngừng gửi/xử lý/trả lời/lỗi/không có dữ liệu", status: "partial", note: "Voice Worker qua Gateway + dự phòng thiết bị; barge-in có; chưa test model/loa thật." },
+  { id: "04", name: "Hỏi đáp giọng nói", states: "idle/nghe/ngừng gửi/xử lý/trả lời/lỗi/không có dữ liệu", status: "partial", note: "Giọng nói xử lý trên máy chủ + dự phòng thiết bị; barge-in có; chưa test model/loa thật." },
   { id: "05", name: "Trí nhớ AI", states: "empty/loading/data/filter trống/không quyền xóa", status: "met", note: "Lọc ngày, camera, loại, đối tượng, thẻ, mức ưu tiên, nguồn dữ liệu." },
   { id: "06", name: "Thống kê & tính toán", states: "data/empty/truy vết nguồn/cảnh báo dữ liệu thiếu", status: "met", note: "Mỗi chỉ số có định nghĩa, phạm vi, múi giờ, bộ lọc và tỷ lệ dữ liệu mẫu." },
   { id: "07", name: "Cảnh báo", states: "empty/data/đã đọc/không quyền quản lý", status: "met", note: "Quy tắc phía máy chủ, chống lặp theo cooldown, xác nhận đã đọc, mở bằng chứng." },
@@ -38,7 +38,7 @@ const BUTTONS = [
   ["Mic", "Voice Worker / Web Speech dự phòng", "Bật mic, hiện transcript, gửi câu hỏi; từ chối quyền → thông báo", "partial"],
   ["Nút gửi câu hỏi", "POST /api/chat", "SQL có kiểm soát + bằng chứng; 429 khi quá tần suất", "met"],
   ["Bật webcam", "getUserMedia", "Live; lỗi quyền → thông báo + giữ ảnh mẫu", "met"],
-  ["Nhận diện / Đếm qua vạch", "Gateway → Vision Worker + POST /api/events", "Gắn clientReported=true, chống trùng idempotency", "partial"],
+  ["Nhận diện / Đếm qua vạch", "Máy chủ → bộ xử lý ảnh + POST /api/events", "Gắn clientReported=true, chống trùng idempotency", "partial"],
   ["Chụp ảnh / Ghi clip", "POST /api/assets + /api/events", "Ảnh lưu vào trí nhớ; clip webm tối đa 15 giây", "met"],
   ["Trích xuất", "POST /api/extractions", "Ảnh + ROI + ghi chú; số trong ghi chú không thành dữ kiện", "met"],
   ["Xác nhận / Lưu tạm / Sai", "PATCH /api/extractions/{id}", "Giữ rawResult, tăng version, ghi verified_by", "met"],
@@ -107,7 +107,7 @@ export default function DesignClient() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold">Camera D-AI · Design Freeze v1.0</h1>
-        <p className="text-sm text-[#a9bad2]">Kiến trúc mới: Gateway + Hermes + AI Workers. Bàn giao G0 + G1: audit trung thực, token, robot, trạng thái, hành vi, nghiệm thu. Đây là tài liệu sống gắn với mã nguồn đang chạy — không phải mockup rời.</p>
+        <p className="text-sm text-[#a9bad2]">Kiến trúc mới: máy chủ + trợ lý AI + bộ xử lý chuyên môn. Bàn giao G0 + G1: audit trung thực, token, robot, trạng thái, hành vi, nghiệm thu. Đây là tài liệu sống gắn với mã nguồn đang chạy — không phải mockup rời.</p>
       </div>
       <div className="scroll-thin flex gap-1 overflow-x-auto rounded-xl bg-white/5 p-1">
         {TABS.map(([k, l, I]) => (
@@ -124,7 +124,7 @@ export default function DesignClient() {
           <div className="grid gap-3 md:grid-cols-3">
             {[
               ["Có thật", "met", ["Next.js/React UI tiếng Việt, robot SVG 7 trạng thái", "Camera webcam + overlay + đếm có chống trùng", "Ảnh/ROI/OCR/đối tượng + kiểm duyệt kết quả", "Hỏi đáp SQL có kiểm soát + bằng chứng", "PostgreSQL + Drizzle, audit, session, RBAC"]],
-              ["Một phần", "partial", ["Webcam phụ thuộc trình duyệt, chưa có dịch vụ nền", "Adapter Vision/OCR qua Gateway; cần worker/model thật", "Voice Worker tùy cấu hình; Web Speech/giọng thiết bị dự phòng", "Chưa tách dữ liệu theo người dùng", "Chưa đo sai số đếm / độ trễ trên thiết bị thật"]],
+              ["Một phần", "partial", ["Webcam phụ thuộc trình duyệt, chưa có dịch vụ nền", "Adapter Vision/OCR qua máy chủ; cần worker/model thật", "Voice Worker tùy cấu hình; Web Speech/giọng thiết bị dự phòng", "Chưa tách dữ liệu theo người dùng", "Chưa đo sai số đếm / độ trễ trên thiết bị thật"]],
               ["Chưa có", "miss", ["App Windows/Android đóng gói riêng", "Camera RTSP và ghi 24/7", "Backup/khôi phục tự động", "Thông báo đẩy, ghép đôi QR", "iOS/TestFlight, nhiều GPU"]],
             ].map(([title, s, list]) => (
               <div key={String(title)} className="rounded-xl border border-white/10 p-3">

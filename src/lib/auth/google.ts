@@ -38,6 +38,20 @@ export function stateMatches(given: string | null, expected: string | undefined 
   return diff === 0;
 }
 
+/**
+ * OAuth must start on the callback's origin so the browser sends the state cookie
+ * back to /api/auth/google/callback. Returns the canonical origin when the request
+ * arrived elsewhere (e.g. a LAN IP); null when no redirect is needed.
+ */
+export function resolveStartOrigin(requestOrigin: string, callbackUrl: string): string | null {
+  try {
+    const canonical = new URL(callbackUrl);
+    return new URL(requestOrigin).origin === canonical.origin ? null : canonical.origin;
+  } catch {
+    return null;
+  }
+}
+
 export function stateCookie(state: string): string {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   return `${GOOGLE_STATE_COOKIE}=${state}; Path=/api/auth/google; HttpOnly; SameSite=Lax; Max-Age=${GOOGLE_STATE_TTL_SECONDS}${secure}`;
