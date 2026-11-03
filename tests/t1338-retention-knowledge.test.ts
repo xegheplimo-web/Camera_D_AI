@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { desc, eq, sql, TransactionRollbackError } from "drizzle-orm";
 import { db, pool } from "../src/db";
+import { count, DAY_MS, FRESH, inTx, OLD, type Tx } from "./helpers/db";
 import { appSettings, assets, auditLog, cameras, events, knowledgeImages, knowledgeItems, tenants } from "../src/db/schema";
 import { purgeDemoData, runRetention, unlinkPending } from "../src/lib/retention";
 
@@ -22,31 +23,10 @@ import { purgeDemoData, runRetention, unlinkPending } from "../src/lib/retention
 const testDataDir = mkdtempSync(join(tmpdir(), "dai-t1338-test-"));
 process.env.DAI_DATA_DIR = testDataDir;
 
-const DAY_MS = 86_400_000;
 const SHA_KEEP = "c".repeat(64);
 const SHA_GONE = "d".repeat(64);
-const OLD = new Date(Date.now() - 40 * DAY_MS);   // 40 ngày trước — chắc chắn quá mọi cutoff test
-const FRESH = new Date(Date.now() - 3_600_000);    // 1 giờ trước — luôn trong hạn giữ
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-/** Chạy thao tác huỷ diệt trong transaction rồi rollback — DB không đổi gì sau test. */
-async function inTx(fn: (tx: Tx) => Promise<void>) {
-  try {
-    await db.transaction(async (tx) => {
-      await fn(tx);
-      tx.rollback();
-    });
-  } catch (e) {
-    if (!(e instanceof TransactionRollbackError)) throw e;
-  }
-}
-
-const count = async (tx: Tx, table: any, where?: any) => {
-  const q = tx.select({ c: sql<number>`count(*)::int` }).from(table);
-  const rows = await (where ? q.where(where) : q);
-  return rows[0].c;
-};
 
 /** Số asset quá hạn (cutoff 1 ngày) chỉ còn knowledge_images giữ — cùng vị ngữ production. */
 const keptByKnowledge = async (tx: Tx) =>
