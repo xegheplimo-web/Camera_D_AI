@@ -9,6 +9,9 @@ import CameraView, { type Cam } from "@/components/CameraView";
 import EventDetail from "@/components/EventDetail";
 import { Card, EventRow, StatTile, type EventItem } from "@/components/ui";
 import { useApp } from "@/components/AppState";
+import type { ConnectionState } from "@/lib/camera/status";
+
+type CamHealth = { connection: ConnectionState; sourceKind: string; checkedAt: string };
 
 type Dash = {
   today: { personIn: number; personOut: number; vehicles: number; motorcycles: number; cars: number; alerts: number; total: number };
@@ -37,6 +40,7 @@ export default function HomePage() {
   const [hello, setHello] = useState("Xin chào!");
   const lastTop = useRef<number | null>(null);
   const [newIds, setNewIds] = useState<Set<number>>(new Set());
+  const [health, setHealth] = useState<Record<number, CamHealth>>({});
 
   const load = useCallback(async () => {
     try {
@@ -60,8 +64,27 @@ export default function HomePage() {
     return () => clearInterval(t);
   }, [load]);
 
+  // Probe trạng thái kết nối thật (mediaMTX phía server) — KPI không đọc cột status DB.
+  useEffect(() => {
+    const tick = async () => {
+      try {
+        const r = await fetch("/api/cameras/health", { cache: "no-store" });
+        if (r.ok) setHealth(await r.json());
+      } catch {}
+    };
+    void tick();
+    const t = setInterval(tick, 4000);
+    return () => clearInterval(t);
+  }, []);
+
   const cam = d?.cameras.find((c) => c.id === camId) ?? d?.cameras[0];
   const maxH = Math.max(1, ...(d?.hourly ?? []).map((h) => Math.max(h.people, h.vehicles)));
+
+  const healthLoaded = Object.keys(health).length > 0;
+  const physicalOnline = healthLoaded ? Object.values(health).filter((h) => h.sourceKind === "physical" && h.connection === "online").length : null;
+  const webcamN = d?.cameras.filter((c) => c.sourceType === "webcam").length ?? 0;
+  const simN = d?.cameras.filter((c) => c.sourceType === "demo").length ?? 0;
+  const camSub = [webcamN ? `${webcamN} webcam` : "", simN ? `${simN} mô phỏng` : ""].filter(Boolean).join(" · ") || null;
 
   const actions = [
     { label: "Xem trực tiếp", icon: PlayCircle, href: "/camera", color: "text-cyan-300" },
@@ -87,7 +110,7 @@ export default function HomePage() {
           </div>
         </div>
         <div className="relative mt-3 flex flex-wrap gap-2 text-[11px]">
-          <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-emerald-300">● {d?.cameras.filter((c) => c.status === "online").length ?? 0}/{d?.cameras.length ?? 0} camera online</span>
+          <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-emerald-300">● {physicalOnline ?? "…"}/{d?.cameras.length ?? 0} camera online</span>
           <span className="rounded-full bg-cyan-500/15 px-2 py-1 text-cyan-300">Xử lý AI trên máy chủ</span>
           <span className="rounded-full bg-violet-500/15 px-2 py-1 text-violet-300">Giọng nói: phát trên máy này</span>
         </div>
@@ -121,13 +144,16 @@ export default function HomePage() {
 
       <div className="grid grid-cols-2 gap-2 xl:col-span-12 md:grid-cols-4">
         {[
-          ["Camera trực tuyến", `${d?.cameras.filter((c) => c.status === "online").length ?? 0}/${d?.cameras.length ?? 0}`, "text-emerald-300"],
-          ["Dung lượng ảnh/clip", `${((d?.storageBytes ?? 0) / 1024 / 1024).toFixed(1)} MB`, "text-cyan-300"],
-          ["Đồng bộ gần nhất", d?.lastSyncAt ? new Date(d.lastSyncAt).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) : "—", "text-slate-200"],
-          ["Cảnh báo chưa xử lý", String(d?.unackedAlerts ?? 0), (d?.unackedAlerts ?? 0) > 0 ? "text-amber-300" : "text-slate-200"],
-        ].map(([l, v, c]) => (
+          { l: "Camera trực tuyến", v: `${physicalOnline ?? "…"}/${d?.cameras.length ?? "…"}`, c: "text-emerald-300", sub: camSub },
+          { l: "Dung lượng ảnh/clip", v: `${((d?.storageBytes ?? 0) / 1024 / 1024).toFixed(1)} MB`, c: "text-cyan-300" },
+          { l: "Đồng bộ gần nhất", v: d?.lastSyncAt ? new Date(d.lastSyncAt).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) : "—", c: "text-slate-200" },
+          { l: "Cảnh báo chưa xử lý", v: String(d?.unackedAlerts ?? 0), c: (d?.unackedAlerts ?? 0) > 0 ? "text-amber-300" : "text-slate-200" },
+        ].map(({ l, v, c, sub }) => (
           <div key={l} className="glass flex items-center justify-between px-3 py-2">
-            <span className="text-[11px] text-[#a9bad2]">{l}</span>
+            <div>
+              <div className="text-[11px] text-[#a9bad2]">{l}</div>
+              {sub && <div className="text-[10px] text-slate-400">{sub}</div>}
+            </div>
             <span className={`text-sm font-bold ${c}`}>{v}</span>
           </div>
         ))}
