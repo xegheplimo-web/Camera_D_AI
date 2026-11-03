@@ -70,17 +70,33 @@ before(async () => {
 });
 
 after(async () => {
-  if (camId) {
-    await db.delete(events).where(eq(events.cameraId, camId));
-    await db.delete(assets).where(eq(assets.cameraId, camId));
-    await db.delete(cameras).where(eq(cameras.id, camId));
+  for (const id of [camId, ...createdCams].filter(Boolean)) {
+    await db.delete(events).where(eq(events.cameraId, id));
+    await db.delete(assets).where(eq(assets.cameraId, id));
+    await db.delete(cameras).where(eq(cameras.id, id));
   }
   rmSync(testDataDir, { recursive: true, force: true });
   await pool.end();
 }, { timeout: 20000 });
 
-const liveEvents = () => db.select().from(events).where(eq(events.cameraId, camId));
-const liveAssets = () => db.select().from(assets).where(eq(assets.cameraId, camId));
+const liveEvents = (id = camId) => db.select().from(events).where(eq(events.cameraId, id));
+const liveAssets = (id = camId) => db.select().from(assets).where(eq(assets.cameraId, id));
+
+/**
+ * Camera riêng cho mỗi test integration. Cooldown nay do DB quyết (T-1346) nên
+ * dùng chung một camera sẽ khiến test trước chặn test sau — Codex P2 trên PR #40.
+ */
+const createdCams: number[] = [];
+let camSeq = 0;
+async function newCam(tag: string): Promise<{ id: number; name: string; location: string }> {
+  camSeq += 1;
+  const [row] = await db
+    .insert(cameras)
+    .values({ code: `CAM-DETECT-${tag}-${camSeq}`, name: `DetectorFixture-${tag}`, location: "lab", sourceType: "rtsp", streamName: `dai_cam_9${camSeq}`, status: "degraded" })
+    .returning({ id: cameras.id });
+  createdCams.push(row.id);
+  return { id: row.id, name: `DetectorFixture-${tag}`, location: "lab" };
+}
 
 test("unit: parseMotionScore đọc YAVG và chuẩn hoá 0..1", () => {
   assert.equal(parseMotionScore("lavfi.signalstats.YAVG=0"), 0);
@@ -134,22 +150,23 @@ test("ffmpeg: frame giống hệt → score ~0; khác → score cao", { skip: !h
 });
 
 test("integration: 2 frame khác → 1 event + 1 asset; giống → 0; cooldown → không thêm", { skip: !hasFfmpeg, timeout: 60000 }, async () => {
+  const cam = await newCam("basic");
   const cs = freshCs();
   const f1 = await jpegVariant(1);
   const f2 = await jpegVariant(8);
 
   // Frame đầu = baseline: chưa có gì để so, không sinh event.
   assert.equal(await processFrame(cam, f1, cs, cfg), "baseline");
-  assert.equal((await liveEvents()).length, 0);
+  assert.equal((await liveEvents(cam.id)).length, 0);
 
   // Frame khác vượt ngưỡng → event + asset thật.
   assert.equal(await processFrame(cam, f2, cs, cfg), "evented");
-  const evs = await liveEvents();
+  const evs = await liveEvents(cam.id);
   assert.equal(evs.length, 1);
   assert.equal(evs[0].type, "motion");
   assert.equal(evs[0].source, "live");
   assert.equal(evs[0].clientReported, false);
-  const ats = await liveAssets();
+  const ats = await liveAssets(cam.id);
   assert.equal(ats.length, 1);
   assert.equal(ats[0].mime, "image/jpeg");
   assert.equal(ats[0].sha256, sha256hex(f2));
@@ -159,44 +176,64 @@ test("integration: 2 frame khác → 1 event + 1 asset; giống → 0; cooldown 
 
   // Lặp lại cùng frame trong cooldown → score ~0, không sinh thêm.
   assert.equal(await processFrame(cam, f2, cs, cfg), "below-threshold");
-  assert.equal((await liveEvents()).length, 1);
-  assert.equal((await liveAssets()).length, 1);
+  assert.equal((await liveEvents(cam.id)).length, 1);
+  assert.equal((await liveAssets(cam.id)).length, 1);
 
   // Frame khác tiếp nhưng vẫn trong cooldown → chặn.
   const f3 = await jpegVariant(20);
   assert.equal(await processFrame(cam, f3, cs, cfg), "cooldown");
-  assert.equal((await liveEvents()).length, 1);
+  assert.equal((await liveEvents(cam.id)).length, 1);
 });
 
 test("integration: dedupe theo sha — cùng frame sau cooldown không tạo event trùng", { skip: !hasFfmpeg, timeout: 60000 }, async () => {
+  const cam = await newCam("dedupe");
   const cs = freshCs();
+  nowMs = Date.now(); // mốc sạch: cooldown DB tính theo happenedAt của chính camera này
   const f1 = await jpegVariant(2);
   const f2 = await jpegVariant(12);
 
   await processFrame(cam, f1, cs, cfg);
   assert.equal(await processFrame(cam, f2, cs, cfg), "evented");
-  const before = (await liveEvents()).length;
-  const assetsBefore = (await liveAssets()).length;
+  const before = (await liveEvents(cam.id)).length;
+  const assetsBefore = (await liveAssets(cam.id)).length;
 
   // Đổi baseline sang frame khác, qua cooldown, rồi quay lại f2 → sha trùng → dedupe.
   await processFrame(cam, await jpegVariant(30), cs, cfg); // cooldown
   nowMs += 61_000;
   assert.equal(await processFrame(cam, f2, cs, cfg), "deduped");
-  assert.equal((await liveEvents()).length, before, "dedupe không được tạo event mới");
-  assert.equal((await liveAssets()).length, assetsBefore, "dedupe không được tạo asset mới");
+  assert.equal((await liveEvents(cam.id)).length, before, "dedupe không được tạo event mới");
+  assert.equal((await liveAssets(cam.id)).length, assetsBefore, "dedupe không được tạo asset mới");
 
   // Frame hoàn toàn mới sau cooldown → event mới vẫn được tạo.
   assert.equal(await processFrame(cam, await jpegVariant(40), cs, cfg), "evented");
-  assert.equal((await liveEvents()).length, before + 1);
+  assert.equal((await liveEvents(cam.id)).length, before + 1);
 });
 
 test("integration: recordDetection idempotent theo idempotencyKey", { skip: !hasFfmpeg }, async () => {
+  const cam = await newCam("idem");
   const jpeg = await jpegVariant(50);
-  const first = await recordDetection(cam, jpeg, 0.05);
-  const second = await recordDetection(cam, jpeg, 0.05);
+  const first = await recordDetection(cam, jpeg, 0.05, Date.now());
+  const second = await recordDetection(cam, jpeg, 0.05, Date.now());
   assert.equal(first.duplicate, false);
   assert.equal(second.duplicate, true);
   assert.equal(second.eventId, first.eventId);
+});
+
+test("integration: frame bị cooldown DB từ chối KHÔNG để lại asset mồ côi", async () => {
+  const cam = await newCam("orphan");
+  const base = Date.now();
+  const f1 = await jpegVariant(70);
+  const f2 = await jpegVariant(71); // frame KHÁC ⇒ sha khác, không dedupe theo ảnh
+
+  const first = await recordDetection(cam, f1, 0.05, base);
+  assert.equal(first.duplicate, false, "event đầu phải được tạo");
+
+  const second = await recordDetection(cam, f2, 0.05, base + 5_000); // trong cooldown 60 s
+  assert.equal(second.duplicate, true, "cooldown DB phải chặn");
+  assert.equal(second.eventId, first.eventId);
+
+  const ats = await liveAssets(cam.id);
+  assert.equal(ats.length, 1, "ảnh bị từ chối không được ghi asset (Codex P2 PR #40)");
 });
 
 test("unit: processFrame không gọi scoreFn trên frame baseline", async () => {
