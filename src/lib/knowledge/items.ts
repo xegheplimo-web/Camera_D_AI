@@ -5,6 +5,7 @@ import { HttpError } from "@/lib/http-guard";
 import { assetReadScope } from "@/lib/scope";
 import type { SessionPayload } from "@/lib/token";
 import { asObject, denied } from "./http";
+import { IDENTITY_FIELDS, mergeIdentity } from "./normalize";
 
 export const ITEM_SCOPES = ["camera", "location", "workspace"] as const;
 const active = () => isNull(knowledgeItems.deletedAt);
@@ -31,6 +32,13 @@ export function parsePrice(v: unknown): number {
   const n = Number(v);
   if (!Number.isSafeInteger(n) || n < 0) throw new HttpError(400, "INVALID_PRICE", "priceVnd phải là số nguyên ≥ 0 (VND).");
   return n;
+}
+
+/** Trường định danh gửi ở top-level body (hoặc lồng trong custom) — T-1353. */
+function identityInput(b: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of IDENTITY_FIELDS) if (f in b) out[f] = b[f];
+  return out;
 }
 
 function parseCustom(v: unknown): Record<string, unknown> {
@@ -85,7 +93,7 @@ export async function createItem(tenantId: number, session: SessionPayload, body
   const sku = optionalText(b.sku, 200, "sku");
   const note = optionalText(b.note, 2000, "note");
   const priceVnd = b.priceVnd === undefined || b.priceVnd === null ? null : parsePrice(b.priceVnd);
-  const custom = parseCustom(b.custom);
+  const custom = mergeIdentity(parseCustom(b.custom), identityInput(b)).custom;
   return db.transaction(async (tx) => {
     const [item] = await tx.insert(knowledgeItems).values({ tenantId, scope, cameraId, title, sku, note, priceVnd, custom, createdBy: session.sub }).returning();
     // Giá khởi tạo cũng là một mốc lịch sử — cùng transaction với insert item.
@@ -110,7 +118,13 @@ export async function updateItem(tenantId: number, id: number, body: unknown) {
   if ("cameraId" in b) set.cameraId = b.cameraId === null ? null : await cameraInTenant(tenantId, b.cameraId);
   if ("sku" in b) set.sku = optionalText(b.sku, 200, "sku");
   if ("note" in b) set.note = optionalText(b.note, 2000, "note");
-  if ("custom" in b) set.custom = parseCustom(b.custom);
+  const idIn = identityInput(b);
+  if ("custom" in b || Object.keys(idIn).length) {
+    const [cur] = await db.select({ custom: knowledgeItems.custom }).from(knowledgeItems)
+      .where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.tenantId, tenantId), active())).limit(1);
+    const base = "custom" in b ? parseCustom(b.custom) : ((cur?.custom ?? {}) as Record<string, unknown>);
+    set.custom = mergeIdentity(base, idIn).custom;
+  }
   // price_vnd chỉ đổi qua POST .../price để luôn có history — PATCH không chạm.
   if (!Object.keys(set).length) throw new HttpError(400, "EMPTY_PATCH", "Không có thay đổi hợp lệ.");
   const [row] = await db.update(knowledgeItems).set({ ...set, updatedAt: new Date() })
