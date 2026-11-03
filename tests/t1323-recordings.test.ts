@@ -23,9 +23,9 @@ import {
 } from "../src/lib/recordings";
 
 /**
- * T-1323 — bản ghi mediaMTX trên đĩa: parser tên segment, list theo khoảng
- * thời gian, purge chặn traversal + audit, API 401/403/404, proxy playback
- * (Range chuyển tiếp khi upstream 206, ngược lại 200 stream).
+ * T-1323/T-1323b — bản ghi mediaMTX trên đĩa: parser tên segment, list theo
+ * khoảng thời gian, purge chặn traversal + audit, API 401/403/404, phát trực
+ * tiếp file segment trên đĩa với Range thật (200/206/416 — thay proxy playback).
  *
  * Hai tầng: lib chạy in-process với RECORDINGS_DIR=thư mục tạm; API chạy trên
  * `next start` spawn với RECORDINGS_DIR + MEDIAMTX_PLAYBACK trỏ fixture.
@@ -44,6 +44,14 @@ const SEGOTHER = "2026-09-01_00-00-00-000000.mp4"; // dir không map camera nào
 const SEGC_OLD = "2026-08-01_00-00-00-000000.mp4";   // camC: override qua cameras.retention_days=2
 const SEGC_FRESH = "2026-11-02_09-00-00-000000.mp4"; // camC: ~1 ngày → giữ
 const PURGE_OLD = "2020-01-01_00-00-00-000000.mp4";
+
+// Thân SEGFRESH mô phỏng MP4 thật (box ftyp + mdat + payload > 1024B) để test
+// Range kiểm tra được đầu file "ftyp" — Chrome yêu cầu đúng format này.
+const SEGFRESH_BODY = Buffer.concat([
+  Buffer.from("\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp41", "latin1"),
+  Buffer.from("\x00\x00\x10\x00mdat", "latin1"),
+  randomBytes(4096),
+]);
 
 let app: ChildProcess, fixture: Server, base: string;
 let logs = "";
@@ -106,7 +114,7 @@ before(async () => {
   // camC có streamName + cameras.retention_days=2 nhưng KHÔNG có camera_settings
   // → nhánh fallback cameras.retention_days của runVideoRetention.
 
-  putFile(keyA(), SEGFRESH, "FRESH-BYTES!");
+  putFile(keyA(), SEGFRESH, SEGFRESH_BODY);
   putFile(keyA(), SEGOLD, "OLD-BYTES-OLD!");
   putFile(keyA(), SEGZERO, Buffer.alloc(0));
   putFile(keyA(), "not-a-segment.mp4", "JUNK");
@@ -241,7 +249,7 @@ test("unit: listSegments — đọc đĩa, sắp xếp, bỏ file 0 byte & tên 
   const st = await storageStatus();
   assert.equal(
     st.totalBytes,
-    ["FRESH-BYTES!", "OLD-BYTES-OLD!", "OTHER-BYTES", "PURGE-OLD", "PURGE-KEEP", "CAMC-OLD", "CAMC-FRESH"]
+    SEGFRESH_BODY.length + ["OLD-BYTES-OLD!", "OTHER-BYTES", "PURGE-OLD", "PURGE-KEEP", "CAMC-OLD", "CAMC-FRESH"]
       .reduce((a, s) => a + Buffer.byteLength(s), 0),
   );
   const camEntry = st.cameras.find((c) => c.key === keyA());
@@ -302,31 +310,44 @@ test("API: GET danh sách segment + storage; 401 không phiên, 400/404 sai tham
 
 /* ================= 5. API GET /api/recordings/play ================= */
 
-test("API: play proxy — 200 video/mp4 + đúng path/start; Range chuyển tiếp khi upstream 206", async () => {
+test("API: play — stream file segment trên đĩa: 200 nguyên file, Range thật 206 + ftyp, 416, download", async () => {
   const startIso = new Date(2026, 10, 1, 10, 0, 0).toISOString(); // khớp SEGFRESH
-  fixtureCalls.length = 0;
-  const r = await call(`/api/recordings/play?cameraId=${camA}&start=${encodeURIComponent(startIso)}&duration=60`, "GET", undefined, owner());
+  const url = `/api/recordings/play?cameraId=${camA}&start=${encodeURIComponent(startIso)}`;
+
+  const r = await call(`${url}&duration=60`, "GET", undefined, owner());
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.match(r.headers.get("content-type") ?? "", /video\/mp4/);
-  const hit = fixtureCalls.at(-1);
-  assert.equal(hit?.path, keyA(), "proxy phải truyền đúng mediaMTX path của camera");
-  assert.equal(hit?.start, startIso, "start phải được chuyển nguyên (ISO)");
-  assert.equal(hit?.duration, "60");
-  assert.equal(hit?.range, null);
+  assert.equal(r.headers.get("accept-ranges"), "bytes");
+  assert.equal(r.headers.get("content-length"), String(SEGFRESH_BODY.length), "không Range → content-length = size file");
 
-  fixtureCalls.length = 0;
-  const rr = await call(`/api/recordings/play?cameraId=${camA}&start=${encodeURIComponent(startIso)}`, "GET", undefined, owner(), { Range: "bytes=0-99" });
-  assert.equal(rr.status, 206, "upstream 206 → proxy trả 206");
-  assert.equal(rr.headers.get("content-range"), "bytes 0-99/500");
-  assert.equal(fixtureCalls.at(-1)?.range, "bytes=0-99", "Range header phải được chuyển tiếp");
+  // Mốc nằm giữa hai segment → server chọn segment có start ≤ mốc gần nhất.
+  const between = await call(
+    `/api/recordings/play?cameraId=${camA}&start=${encodeURIComponent(new Date(2026, 10, 1, 9, 0, 0).toISOString())}`,
+    "GET", undefined, owner(), { Range: "bytes=0-4" });
+  assert.equal(between.status, 206);
+  assert.equal(between.data.raw, "OLD-B", "mốc 9h thuộc SEGOLD 8h30 → phải đọc SEGOLD");
 
-  const dl = await call(`/api/recordings/play?cameraId=${camA}&start=${encodeURIComponent(startIso)}&download=1`, "GET", undefined, owner());
+  const rr = await call(url, "GET", undefined, owner(), { Range: "bytes=0-1023" });
+  assert.equal(rr.status, 206, JSON.stringify(rr.data));
+  assert.equal(rr.headers.get("content-range"), `bytes 0-1023/${SEGFRESH_BODY.length}`);
+  assert.equal(rr.headers.get("content-length"), "1024");
+  assert.equal(rr.data.raw.slice(4, 8), "ftyp", "đầu body là box ftyp của MP4");
+
+  const suffix = await call(url, "GET", undefined, owner(), { Range: "bytes=-16" });
+  assert.equal(suffix.status, 206, "suffix range bytes=-n");
+  assert.equal(suffix.headers.get("content-range"), `bytes ${SEGFRESH_BODY.length - 16}-${SEGFRESH_BODY.length - 1}/${SEGFRESH_BODY.length}`);
+
+  const bad = await call(url, "GET", undefined, owner(), { Range: "bytes=999999999-" });
+  assert.equal(bad.status, 416, "Range vượt size → 416");
+  assert.equal(bad.headers.get("content-range"), `bytes */${SEGFRESH_BODY.length}`);
+
+  const dl = await call(`${url}&download=1`, "GET", undefined, owner());
   assert.equal(dl.status, 200);
   assert.match(dl.headers.get("content-disposition") ?? "", /attachment;.*\.mp4/);
 
   assert.equal((await call(`/api/recordings/play?cameraId=${camB}&start=${encodeURIComponent(startIso)}`, "GET", undefined, owner())).status, 404, "camera không có bản ghi → 404");
-  assert.equal((await call(`/api/recordings/play?cameraId=${camA}&start=${encodeURIComponent(startIso)}`, "GET", undefined, t2owner())).status, 404);
-  assert.equal((await call(`/api/recordings/play?cameraId=${camA}&start=${encodeURIComponent(startIso)}`, "GET", undefined, "")).status, 401);
+  assert.equal((await call(url, "GET", undefined, t2owner())).status, 404);
+  assert.equal((await call(url, "GET", undefined, "")).status, 401);
   assert.equal((await call(`/api/recordings/play?cameraId=${camA}&start=khoong`, "GET", undefined, owner())).status, 400);
   assert.equal((await call(`/api/recordings/play?start=${encodeURIComponent(startIso)}`, "GET", undefined, owner())).status, 400);
 });
