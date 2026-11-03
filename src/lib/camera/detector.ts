@@ -156,8 +156,10 @@ export async function computeMotionScore(prev: Buffer, cur: Buffer, cfg = detect
 
 /* ---------------- ghi asset + event ---------------- */
 
-async function ensureDetectAsset(jpeg: Buffer, sha: string, cameraId: number): Promise<number> {
-  const [existing] = await db
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function ensureDetectAsset(tx: Tx, jpeg: Buffer, sha: string, cameraId: number): Promise<number> {
+  const [existing] = await tx
     .select({ id: assets.id })
     .from(assets)
     .where(and(eq(assets.sha256, sha), eq(assets.origin, "detect"), eq(assets.cameraId, cameraId)))
@@ -170,7 +172,7 @@ async function ensureDetectAsset(jpeg: Buffer, sha: string, cameraId: number): P
   await writeFile(join(dir, `${sha}.jpg`), jpeg, { flag: "wx" }).catch((e: NodeJS.ErrnoException) => {
     if (e.code !== "EEXIST") throw e;
   });
-  const [row] = await db
+  const [row] = await tx
     .insert(assets)
     .values({
       kind: "image",
@@ -190,11 +192,11 @@ async function ensureDetectAsset(jpeg: Buffer, sha: string, cameraId: number): P
 export async function recordDetection(
   cam: { id: number; name: string; location: string },
   jpeg: Buffer,
-  score: number
+  score: number,
+  nowMs: number = Date.now()
 ): Promise<{ eventId: number; assetId: number; duplicate: boolean }> {
   const sha = sha256hex(jpeg);
   const idem = `detect-${cam.id}-${sha.slice(0, 24)}`;
-  const assetId = await ensureDetectAsset(jpeg, sha, cam.id);
   const cfg = detectorConfig();
 
   // T-1346: cooldown do DB quyết (advisory xact lock theo camera + kiểm tra
@@ -216,11 +218,15 @@ export async function recordDetection(
         and(
           eq(events.cameraId, cam.id),
           eq(events.createdBy, "detector"),
-          gt(events.happenedAt, new Date(Date.now() - cfg.cooldownMs)),
+          gt(events.happenedAt, new Date(nowMs - cfg.cooldownMs)),
         ),
       )
       .limit(1);
     if (recent) return { eventId: recent.id, assetId: recent.assetId ?? 0, duplicate: true };
+
+    // Chỉ ghi asset khi event CHẮC CHẮN được tạo: ảnh bị cooldown từ chối không
+    // được để lại file + row mồ côi (Codex P2 trên PR #40).
+    const assetId = await ensureDetectAsset(tx, jpeg, sha, cam.id);
 
     const [row] = await tx
       .insert(events)
@@ -231,6 +237,7 @@ export async function recordDetection(
       note: `Điểm chuyển động ${score.toFixed(4)} (YAVG/255, ngưỡng ${detectorConfig().threshold})`,
       confidence: scoreToConfidence(score),
       assetId,
+      happenedAt: new Date(nowMs),
       tags: ["chuyển động", "phát hiện tự động"],
       idempotencyKey: idem,
       source: "live",
@@ -278,7 +285,7 @@ export async function processFrame(
   if (score < cfg.threshold) return "below-threshold";
   const now = cfg.now();
   if (!shouldEmit(cs.lastEventAt, now, cfg.cooldownMs)) return "cooldown";
-  const rec = await recordDetection(cam, jpeg, score);
+  const rec = await recordDetection(cam, jpeg, score, now);
   if (rec.duplicate) return "deduped";
   cs.lastEventAt = now;
   cs.events++;
