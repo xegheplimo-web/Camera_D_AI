@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Camera as CamIcon, Maximize2, ScanEye, Circle, Square, Star, NotebookPen, Video, VideoOff, ArrowLeftRight, Loader2, RefreshCw } from "lucide-react";
+import { Camera as CamIcon, Maximize2, ScanEye, Circle, Square, Star, NotebookPen, Video, VideoOff, ArrowLeftRight, Loader2, RefreshCw, Settings } from "lucide-react";
 import { api, drawToCanvas, uploadDataUrl, blobToDataUrl, getDetector } from "@/lib/client";
 import { streamBadge } from "@/lib/camera/status";
 import { vi } from "@/lib/labels";
@@ -15,7 +15,7 @@ type Box = { x: number; y: number; w: number; h: number; label: string; score: n
 
 const COLORS: Record<string, string> = { person: "#22c55e", car: "#f43f5e", motorcycle: "#d946ef", truck: "#f97316", bus: "#f97316", bicycle: "#eab308" };
 
-export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam; compact?: boolean; onEvent?: () => void }) {
+export default function CameraView({ cam, compact = false, onEvent, onSettings }: { cam: Cam; compact?: boolean; onEvent?: () => void; onSettings?: () => void }) {
   const router = useRouter();
   const { setMood } = useApp();
   useEffect(() => {
@@ -42,7 +42,7 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
   const [live, setLive] = useState(false);
   const [streamState, setStreamState] = useState<"off" | "connecting" | "live" | "lost">("off");
   const [detect, setDetect] = useState(false);
-  const [modelState, setModelState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [detState, setDetState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [lineX, setLineX] = useState(0.5);
   const [showLine, setShowLine] = useState(true);
@@ -218,17 +218,17 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
     }
     let stop = false;
     let timer: ReturnType<typeof setTimeout>;
-    setModelState((s) => (s === "ready" ? s : "loading"));
+    setDetState((s) => (s === "ready" ? s : "loading"));
     getDetector()
-      .then((model) => {
+      .then((det) => {
         if (stop) return;
-        setModelState("ready");
+        setDetState("ready");
         const loop = async () => {
           if (stop) return;
           const s = source();
           if (s) {
             try {
-              const preds = await model.detect(s.el, 20, 0.45);
+              const preds = await det.detect(s.el, 20, 0.45);
               const nowT = Date.now();
               const tracks = tracksRef.current;
               const out: Box[] = [];
@@ -271,7 +271,7 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
               if (!stop) setBoxes(out);
             } catch (error) {
               if (!stop) {
-                setModelState("error"); setDetect(false); setBoxes([]);
+                setDetState("error"); setDetect(false); setBoxes([]);
                 flash(error instanceof Error ? error.message : "Nhận diện hình ảnh không khả dụng. Camera vẫn xem/chụp được.");
               }
               return;
@@ -282,7 +282,7 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
         loop();
       })
       .catch(() => {
-        setModelState("error");
+        setDetState("error");
         setDetect(false);
         flash("Không kết nối được nhận diện hình ảnh. Hãy thử lại sau.");
       });
@@ -421,7 +421,7 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
         </div>
         {detect && (
           <div className="absolute right-3 top-3 rounded-lg bg-black/60 px-2 py-1 text-xs backdrop-blur">
-            {modelState === "loading" ? <span className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Đang kết nối nhận diện hình ảnh…</span> : <>Đang thấy: <b className="text-emerald-300">{people}</b> người · {boxes.length} đối tượng</>}
+            {detState === "loading" ? <span className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Đang kết nối nhận diện hình ảnh…</span> : <>Đang thấy: <b className="text-emerald-300">{people}</b> người · {boxes.length} đối tượng</>}
           </div>
         )}
         {now && <div className="absolute bottom-3 left-3 rounded-lg bg-black/60 px-2.5 py-1 font-mono text-sm backdrop-blur">{now.toLocaleTimeString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })} – {now.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}</div>}
@@ -438,6 +438,11 @@ export default function CameraView({ cam, compact = false, onEvent }: { cam: Cam
           <button onClick={() => snapshot(false)} disabled={busy} className="rounded-lg bg-black/60 p-2 backdrop-blur hover:bg-cyan-600/60" aria-label="Chụp ảnh" title="Chụp ảnh">
             <CamIcon className="h-4 w-4" />
           </button>
+          {onSettings && (
+            <button onClick={onSettings} data-settings-frame={cam.id} className="rounded-lg bg-black/60 p-2 backdrop-blur hover:bg-cyan-600/60" aria-label="Cài đặt camera" title="Cài đặt">
+              <Settings className="h-4 w-4" />
+            </button>
+          )}
           <button onClick={() => wrapRef.current?.requestFullscreen?.()} className="rounded-lg bg-black/60 p-2 backdrop-blur hover:bg-cyan-600/60" aria-label="Phóng to" title="Toàn màn hình">
             <Maximize2 className="h-4 w-4" />
           </button>

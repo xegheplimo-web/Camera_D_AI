@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PlusCircle, Activity, AlertTriangle, Wifi, Plus, RadioTower } from "lucide-react";
+import { PlusCircle, Activity, AlertTriangle, Wifi, Plus, RadioTower, Settings } from "lucide-react";
 import CameraView, { type Cam } from "@/components/CameraView";
 import CameraDiscovery, { type DiscoveryControls } from "@/components/CameraDiscovery";
+import CameraSettingsDrawer from "@/components/CameraSettingsDrawer";
 import EventDetail from "@/components/EventDetail";
 import { Card, EventRow, type EventItem, EventBadge } from "@/components/ui";
 import { api, getDeviceId } from "@/lib/client";
@@ -22,6 +23,7 @@ export default function CameraPage() {
   const [saving, setSaving] = useState(false);
   const [role, setRole] = useState<string>("viewer");
   const [health, setHealth] = useState<Record<number, CamHealth>>({});
+  const [settingsId, setSettingsId] = useState<number | null>(null);
   const discovery = useRef<DiscoveryControls | null>(null);
   const registerDiscovery = useCallback((c: DiscoveryControls | null) => { discovery.current = c; }, []);
 
@@ -119,7 +121,7 @@ export default function CameraPage() {
             {cams.map((c) => <option key={c.id} value={c.id}>{c.name} – {c.location}</option>)}
           </select>
         </div>
-        {cam ? <CameraView cam={cam} onEvent={refresh} /> : <div className="aspect-video animate-pulse rounded-xl bg-slate-800/50" />}
+        {cam ? <CameraView cam={cam} onEvent={refresh} onSettings={canManage ? () => setSettingsId(cam.id) : undefined} /> : <div className="aspect-video animate-pulse rounded-xl bg-slate-800/50" />}
         <CameraDiscovery cameras={cams} onAdded={onCameraAdded} canManage={canManage} onControlsReady={registerDiscovery} />
 
         <Card title="Dòng thời gian 24 giờ">
@@ -142,20 +144,31 @@ export default function CameraPage() {
         <Card title="Danh sách camera">
           <div className="space-y-2">
             {cams.map((c) => { const st = listStatus(c, health[c.id]?.connection); return (
-              <button key={c.id} onClick={() => selectCam(c.id)} className={`flex w-full items-center gap-3 rounded-xl border p-2 text-left ${c.id === camId ? "border-cyan-400/60 bg-cyan-500/10" : "border-white/10 hover:bg-white/5"}`}>
+              <div key={c.id} role="button" tabIndex={0} onClick={() => selectCam(c.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectCam(c.id); } }} className={`flex w-full cursor-pointer items-center gap-3 rounded-xl border p-2 text-left ${c.id === camId ? "border-cyan-400/60 bg-cyan-500/10" : "border-white/10 hover:bg-white/5"}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={c.thumbnail ?? ""} alt="" className="h-12 w-20 rounded-lg object-cover" />
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold">{c.name}{c.enabled === false && <span className="ml-1 text-xs text-amber-300">(tắt)</span>}</div>
                   <div className="text-xs text-slate-400">{c.location} · {c.sourceType === "webcam" ? "Webcam" : c.sourceType === "rtsp" ? `IP/RTSP${c.sourceHost ? ` · ${c.sourceHost}` : ""}` : "Mô phỏng"}</div>
                 </div>
+                {canManage && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setSettingsId(c.id); }}
+                    data-settings-card={c.id}
+                    aria-label={`Cài đặt ${c.name}`}
+                    title="Cài đặt"
+                    className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-cyan-500/20 hover:text-cyan-200"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </button>
+                )}
                 <div className="text-right text-[11px]">
                   <div className={`flex items-center justify-end gap-1 ${st.tone === "ok" ? "text-emerald-300" : st.tone === "warn" ? "text-amber-300" : "text-slate-400"}`}>
                     <Wifi className="h-3 w-3" /> {st.label}
                   </div>
                   <div className="text-slate-400">{c.today} hôm nay</div>
                 </div>
-              </button>
+              </div>
             ); })}
             {!cams.some((c) => c.sourceType !== "demo") && (
               <div className="rounded-xl border border-dashed border-cyan-400/30 bg-cyan-500/5 p-3 text-center">
@@ -209,6 +222,9 @@ export default function CameraPage() {
         </Card>
       </div>
       <EventDetail e={open} onClose={() => setOpen(null)} onSaved={refresh} />
+      {(() => { const sc = cams.find((c) => c.id === settingsId); return sc && canManage ? (
+        <CameraSettingsDrawer cam={sc} onClose={() => setSettingsId(null)} onSaved={load} />
+      ) : null; })()}
     </div>
   );
 }
