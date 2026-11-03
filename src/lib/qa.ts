@@ -4,6 +4,7 @@ import { and, asc, desc, eq, gte, lt, sql, ilike, or, inArray, type SQL } from "
 import { parseRange, fmtTime, fmtDateTime, addDays, TZ, TZSQL } from "./time";
 import { getSettings } from "./settings";
 import { assetReadScope, extractionScope } from "./scope";
+import { tenantIdOf } from "./knowledge/tenant";
 import type { SessionPayload } from "./token";
 
 type Metric = {
@@ -23,11 +24,12 @@ const METRICS: Record<string, Metric> = {
   event: { key: "event", noun: "sự kiện", types: [] },
 };
 
-export async function thumbMap(session: SessionPayload, assetIds: (number | null)[]) {
+export async function thumbMap(session: SessionPayload, assetIds: (number | null)[], tenantId?: number) {
   const ids = Array.from(new Set(assetIds.filter((x): x is number => typeof x === "number")));
   const map = new Map<number, string>();
   if (!ids.length) return map;
-  const rows = await db.select({ id: assets.id, url: assets.url, kind: assets.kind }).from(assets).where(and(inArray(assets.id, ids), assetReadScope(session)));
+  const t = tenantId ?? (await tenantIdOf(session));
+  const rows = await db.select({ id: assets.id, url: assets.url, kind: assets.kind }).from(assets).where(and(inArray(assets.id, ids), eq(assets.tenantId, t), assetReadScope(session)));
   for (const r of rows) map.set(r.id, r.url && !r.url.startsWith("local:") ? r.url : `/api/assets/${r.id}`);
   return map;
 }
@@ -42,13 +44,24 @@ function detectMetric(s: string): Metric {
   return METRICS.person_in;
 }
 
-async function detectCamera(s: string): Promise<{ id: number; name: string } | null> {
-  const cams = await db.select().from(cameras);
+type CamHit = { id: number; name: string };
+
+/**
+ * Camera chỉ resolve trong tenant của phiên. `missing=true` khi câu hỏi chỉ đích danh
+ * một camera (mã CAM-xx hoặc vị trí quen thuộc) mà tenant không có — caller phải trả
+ * INSUFFICIENT_DATA thay vì im lặng gộp số liệu mọi camera.
+ */
+async function detectCamera(s: string, tenantId: number): Promise<{ cam: CamHit | null; missing: boolean }> {
+  const cams = await db.select().from(cameras).where(eq(cameras.tenantId, tenantId));
+  const pick = (code: string): CamHit | null => {
+    const c = cams.find((x) => x.code === code);
+    return c ? { id: c.id, name: `${c.name} – ${c.location}` } : null;
+  };
   const m = /camera\s*0?(\d+)|cam\s*0?(\d+)/.exec(s);
   if (m) {
     const n = parseInt(m[1] ?? m[2], 10);
-    const c = cams.find((x) => x.code === `CAM-${String(n).padStart(2, "0")}`);
-    if (c) return { id: c.id, name: `${c.name} – ${c.location}` };
+    const cam = pick(`CAM-${String(n).padStart(2, "0")}`);
+    if (cam) return { cam, missing: false };
   }
   const byLoc: [RegExp, string][] = [
     [/cửa/, "CAM-01"],
@@ -56,17 +69,19 @@ async function detectCamera(s: string): Promise<{ id: number; name: string } | n
     [/trong nhà|trong cửa hàng/, "CAM-03"],
     [/kho/, "CAM-04"],
   ];
+  let asked = m !== null;
   for (const [re, code] of byLoc) {
     if (re.test(s)) {
-      const c = cams.find((x) => x.code === code);
-      if (c) return { id: c.id, name: `${c.name} – ${c.location}` };
+      const cam = pick(code);
+      if (cam) return { cam, missing: false };
+      asked = true;
     }
   }
-  return null;
+  return { cam: null, missing: asked };
 }
 
-function metricWhere(m: Metric, start: Date, end: Date, cameraId?: number, demoCond?: SQL | null) {
-  const conds: SQL[] = [gte(events.happenedAt, start), lt(events.happenedAt, end)];
+function metricWhere(m: Metric, start: Date, end: Date, tenantId: number, cameraId?: number, demoCond?: SQL | null) {
+  const conds: SQL[] = [gte(events.happenedAt, start), lt(events.happenedAt, end), eq(events.tenantId, tenantId)];
   if (demoCond) conds.push(demoCond);
   if (m.types.length) conds.push(inArray(events.type, m.types));
   if (m.objectClass) conds.push(eq(events.objectClass, m.objectClass));
@@ -119,23 +134,35 @@ export async function answerQuestion(question: string, session: SessionPayload):
   }
 
   const { demoMode } = await getSettings();
+  // Tenant resolve phía server từ users.tenant_id (T-1333); session/client không tự khai báo.
+  const tenantId = await tenantIdOf(session);
   const demoCond = and(eq(events.clientReported, false), ...(demoMode ? [] : [sql`${events.source} <> 'demo'`]))!;
   const range = parseRange(s);
-  const cam = await detectCamera(s);
+  const { cam, missing } = await detectCamera(s, tenantId);
   const assetScope = assetReadScope(session);
   const exScope = extractionScope(session);
 
+  // Câu hỏi chỉ đích danh một camera mà tenant không có → không gộp số liệu camera khác trả lời thay.
+  if (missing) {
+    const a = base("Chưa xác định được: không có camera nào trong workspace khớp với camera bạn hỏi.", "INSUFFICIENT_DATA");
+    a.details = ["Kiểm tra lại mã hoặc vị trí camera trong mục Camera.", "Mình chỉ trả lời trên dữ liệu camera của workspace này."];
+    a.nextActions = [{ label: "Xem camera", href: "/camera" }];
+    a.calculation = { aggregation: "CAMERA_RESOLVE", table: "cameras", result: "no_match_in_tenant" };
+    a.basedOnDemo = demoMode;
+    return a;
+  }
+
   // --- Memory store counts (assets / notes / extractions) — scoped to this user + shared workspace media
   if (/ảnh đã lưu|bao nhiêu ảnh|số ảnh|ghi chú|trích xuất|video đã lưu|clip/.test(s) && !/tìm/.test(s)) {
-    const [img] = await db.select({ c: sql<number>`count(*)::int` }).from(assets).where(and(eq(assets.kind, "image"), sql`${assets.origin} <> 'demo'`, assetScope));
-    const [vid] = await db.select({ c: sql<number>`count(*)::int` }).from(assets).where(and(eq(assets.kind, "video"), assetScope));
-    const [ex] = await db.select({ c: sql<number>`count(*)::int`, v: sql<number>`count(*) filter (where ${extractions.status} = 'VERIFIED')::int` }).from(extractions).where(exScope);
+    const [img] = await db.select({ c: sql<number>`count(*)::int` }).from(assets).where(and(eq(assets.kind, "image"), sql`${assets.origin} <> 'demo'`, eq(assets.tenantId, tenantId), assetScope));
+    const [vid] = await db.select({ c: sql<number>`count(*)::int` }).from(assets).where(and(eq(assets.kind, "video"), eq(assets.tenantId, tenantId), assetScope));
+    const [ex] = await db.select({ c: sql<number>`count(*)::int`, v: sql<number>`count(*) filter (where ${extractions.status} = 'VERIFIED')::int` }).from(extractions).where(and(exScope, eq(extractions.tenantId, tenantId)));
     const a = base(`Kho trí nhớ đang có ${img.c} ảnh, ${vid.c} video/clip và ${ex.c} ghi chú trích xuất (${ex.v} đã xác minh).`, "DETERMINISTIC_AGGREGATION");
     a.value = img.c;
     a.details = [`Ảnh do người dùng chụp/tải: ${img.c}`, `Video/clip đã lưu: ${vid.c}`, `Ghi chú trích xuất: ${ex.c}`, `Đã xác minh: ${ex.v} · Tạm: ${ex.c - ex.v}`];
     a.calculation = { aggregation: "COUNT", tables: ["assets", "extractions"], scope: session.role === "owner" ? "all" : "mine+shared", note: "Không tính ảnh mẫu của camera demo" };
-    const recent = await db.select().from(extractions).where(exScope).orderBy(desc(extractions.createdAt)).limit(3);
-    const tm = await thumbMap(session, recent.map((r) => r.assetId));
+    const recent = await db.select().from(extractions).where(and(exScope, eq(extractions.tenantId, tenantId))).orderBy(desc(extractions.createdAt)).limit(3);
+    const tm = await thumbMap(session, recent.map((r) => r.assetId), tenantId);
     a.evidence = recent.map((r) => ({ extractionId: r.id, label: r.title, time: fmtDateTime(r.createdAt), thumb: tm.get(r.assetId) ?? null }));
     a.evidenceCount = a.evidence.length;
     a.nextActions = [{ label: "Mở Trí nhớ", href: "/memory?tab=notes" }, { label: "Trích xuất ảnh mới", href: "/extract" }];
@@ -151,13 +178,14 @@ export async function answerQuestion(question: string, session: SessionPayload):
     const termConds = terms.map((t) => or(ilike(events.label, `%${t}%`), ilike(events.note, `%${t}%`), sql`${events.tags}::text ilike ${"%" + t + "%"}`)!);
     const timeConds: SQL[] = range.explicit ? [gte(events.happenedAt, range.start), lt(events.happenedAt, range.end)] : [];
     if (demoCond) timeConds.push(demoCond);
+    timeConds.push(eq(events.tenantId, tenantId));
     if (cam) timeConds.push(eq(events.cameraId, cam.id));
     const where = and(...timeConds, ...(termConds.length ? [or(...termConds)!] : []));
     const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(events).where(where);
     const rows = await db.select().from(events).where(where).orderBy(desc(events.happenedAt)).limit(6);
     const exConds = terms.map((t) => or(ilike(extractions.note, `%${t}%`), ilike(extractions.title, `%${t}%`), sql`${extractions.result}::text ilike ${"%" + t + "%"}`)!);
-    const exRows = exConds.length ? await db.select().from(extractions).where(and(or(...exConds), exScope)).orderBy(desc(extractions.createdAt)).limit(4) : [];
-    const tm = await thumbMap(session, [...rows.map((r) => r.assetId), ...exRows.map((r) => r.assetId)]);
+    const exRows = exConds.length ? await db.select().from(extractions).where(and(or(...exConds), exScope, eq(extractions.tenantId, tenantId))).orderBy(desc(extractions.createdAt)).limit(4) : [];
+    const tm = await thumbMap(session, [...rows.map((r) => r.assetId), ...exRows.map((r) => r.assetId)], tenantId);
     if (!c && !exRows.length) {
       const a = base(`Chưa tìm thấy dữ liệu khớp với “${terms.join(" ")}”${range.explicit ? ` trong ${range.label}` : ""}.`, "INSUFFICIENT_DATA");
       a.details = ["Thử từ khóa ngắn hơn (ví dụ: “xe máy”, “cảnh báo”, “kho”).", "Nếu cần trích xuất biển số/văn bản, hãy chụp ảnh và dùng màn Ảnh & Trích xuất."];
@@ -181,11 +209,11 @@ export async function answerQuestion(question: string, session: SessionPayload):
   }
 
   const metric = detectMetric(s);
-  const where = metricWhere(metric, range.start, range.end, cam?.id, demoCond);
+  const where = metricWhere(metric, range.start, range.end, tenantId, cam?.id, demoCond);
   const scope = `${range.label}${cam ? ` tại ${cam.name}` : ""}`;
 
   // Is there any data at all in range? (to distinguish "0" from "unknown")
-  const anyWhere = and(gte(events.happenedAt, range.start), lt(events.happenedAt, range.end), ...(cam ? [eq(events.cameraId, cam.id)] : []), ...(demoCond ? [demoCond] : []))!;
+  const anyWhere = and(gte(events.happenedAt, range.start), lt(events.happenedAt, range.end), eq(events.tenantId, tenantId), ...(cam ? [eq(events.cameraId, cam.id)] : []), ...(demoCond ? [demoCond] : []))!;
   const anyCount = await countOf(anyWhere);
   if (anyCount === 0) {
     const a = base(`Chưa xác định được: không có dữ liệu camera nào được ghi nhận trong ${scope}.`, "INSUFFICIENT_DATA");
@@ -198,8 +226,8 @@ export async function answerQuestion(question: string, session: SessionPayload):
 
   // --- Occupancy / net flow
   if (/hiện tại|đang có|còn bao nhiêu|chênh lệch|trong cửa hàng|trong phòng/.test(s)) {
-    const inC = await countOf(metricWhere(METRICS.person_in, range.start, range.end, cam?.id, demoCond));
-    const outC = await countOf(metricWhere(METRICS.person_out, range.start, range.end, cam?.id, demoCond));
+    const inC = await countOf(metricWhere(METRICS.person_in, range.start, range.end, tenantId, cam?.id, demoCond));
+    const outC = await countOf(metricWhere(METRICS.person_out, range.start, range.end, tenantId, cam?.id, demoCond));
     const net = Math.max(0, inC - outC);
     const a = base(`Ước lượng còn khoảng ${net} người bên trong (${inC} vào − ${outC} ra, ${scope}).`, "DETERMINISTIC_AGGREGATION");
     a.value = net;
@@ -253,7 +281,7 @@ export async function answerQuestion(question: string, session: SessionPayload):
   const span = range.end.getTime() - range.start.getTime();
   if (span <= 86400000 * 31) {
     const prevStart = new Date(range.start.getTime() - span);
-    const prev = await countOf(metricWhere(metric, prevStart, range.start, cam?.id, demoCond));
+    const prev = await countOf(metricWhere(metric, prevStart, range.start, tenantId, cam?.id, demoCond));
     const label = span === 86400000 ? "hôm trước" : "kỳ trước";
     const diff = total - prev;
     a.details.push(`So với ${label}: ${prev} (${diff >= 0 ? "+" : ""}${diff})`);
@@ -265,7 +293,7 @@ export async function answerQuestion(question: string, session: SessionPayload):
     const mid = await db.select().from(events).where(where).orderBy(asc(events.happenedAt)).offset(Math.floor(total / 2)).limit(1);
     const ev = [first[0], mid[0], last[0]].filter(Boolean);
     const uniq = ev.filter((e, i) => ev.findIndex((x) => x.id === e.id) === i);
-    const tm = await thumbMap(session, uniq.map((e) => e.assetId));
+    const tm = await thumbMap(session, uniq.map((e) => e.assetId), tenantId);
     a.evidence = uniq.map((e) => ({ eventId: e.id, label: e.label, time: fmtTime(e.happenedAt), thumb: e.assetId ? tm.get(e.assetId) ?? null : null }));
     a.evidenceCount = total;
   }
