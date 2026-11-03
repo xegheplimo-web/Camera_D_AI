@@ -554,7 +554,7 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
                     {teach === null ? "Đang kiểm tra…" : teach.ready ? `Sẵn sàng · ${teach.embedded}/${teach.images} ảnh` : teach.images ? `Chưa học · ${teach.images} ảnh` : "Chưa có ảnh"}
                   </span>
                 </div>
-                <p className="mt-1 text-[11px] text-slate-400">Ảnh ở nhiều góc giúp nhận đúng hơn. Ảnh chỉ dùng cho cửa hàng này, không huấn luyện model chung.</p>
+                <p className="mt-1 text-[11px] text-slate-400">Ảnh ở nhiều góc giúp nhận đúng hơn. Ảnh chỉ dùng cho cửa hàng này, không dùng để huấn luyện chung.</p>
                 <button onClick={() => void teachNow()} disabled={saving || !teach?.images} data-teach className="btn btn-primary mt-1.5 px-2 py-1 text-[11px]">
                   <Sparkles className="h-3.5 w-3.5" /> Dạy AI nhận diện
                 </button>
