@@ -5,6 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db, pool } from "../src/db";
 import { ensureDefaultTenant } from "./helpers/tenant";
 import { knowledgeImages, knowledgeItems, knowledgeMergeLog, knowledgePriceHistory } from "../src/db/schema";
+import { cleanupKnowledgeItems, mkAsset as mkAssetRow, mkKnowledgeItem } from "./helpers/knowledge";
 import { mergeItems, previewMerge, undoMerge } from "../src/lib/knowledge/merge";
 
 /**
@@ -22,30 +23,15 @@ before(async () => {
 });
 
 after(async () => {
-  // FK: ảnh + giá + log trước, item sau.
-  if (createdItems.length) {
-    const ids = sql.join(createdItems.map((i) => sql`${i}`), sql`, `);
-    await db.delete(knowledgeImages).where(sql`${knowledgeImages.itemId} in (${ids})`);
-    await db.delete(knowledgePriceHistory).where(sql`${knowledgePriceHistory.itemId} in (${ids})`);
-    await db.delete(knowledgeMergeLog).where(sql`${knowledgeMergeLog.sourceId} in (${ids}) or ${knowledgeMergeLog.targetId} in (${ids})`);
-    await db.delete(knowledgeItems).where(sql`${knowledgeItems.id} in (${ids})`);
-  }
+  await cleanupKnowledgeItems(createdItems);
   await pool.end();
 });
 
+/** Wrapper mỏng: gắn tenant + theo dõi id để dọn sau test. */
 async function mkItem(patch: Record<string, unknown>): Promise<number> {
-  const [row] = await db
-    .insert(knowledgeItems)
-    .values({
-      tenantId,
-      scope: "camera",
-      title: String(patch.title ?? "Sản phẩm"),
-      priceVnd: typeof patch.priceVnd === "number" ? patch.priceVnd : null,
-      custom: (patch.custom ?? {}) as Record<string, unknown>,
-    })
-    .returning({ id: knowledgeItems.id });
-  createdItems.push(row.id);
-  return row.id;
+  const id = await mkKnowledgeItem(tenantId, patch);
+  createdItems.push(id);
+  return id;
 }
 
 async function mkImage(itemId: number, assetId: number): Promise<void> {
@@ -56,14 +42,8 @@ async function mkPrice(itemId: number, priceVnd: number, extra: Record<string, u
   await db.insert(knowledgePriceHistory).values({ tenantId, itemId, priceVnd, ...extra });
 }
 
-/** Tạo asset tối thiểu để ảnh có FK hợp lệ. */
 async function mkAsset(tag: string): Promise<number> {
-  const res = await db.execute(sql`
-    insert into assets (tenant_id, kind, url, origin, mime, sha256, size_bytes)
-    values (${tenantId}, 'image', ${`/t1355/${tag}.jpg`}, 'test', 'image/jpeg', ${`t1355-${tag}`}, 1024)
-    returning id
-  `);
-  const id = Number((res.rows?.[0] as { id: number | string }).id);
+  const id = await mkAssetRow(tenantId, `t1355-${tag}`);
   createdAssets.push(id);
   return id;
 }

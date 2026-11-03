@@ -111,7 +111,7 @@ jobs:
         run: ./node_modules/.bin/playwright install --with-deps chromium
       - name: Feature regression suites (T-1318 → T-1341)
         run: |
-          for s in test:scope test:retention test:t1318 test:t1323 test:t1335 test:t1336 test:t1337 test:t1338 test:t1339 test:t1340 test:t1341 test:t1346 test:t1348 test:t1353 test:t1350 test:t1355 test:t1347; do
+          for s in test:scope test:retention test:t1318 test:t1323 test:t1335 test:t1336 test:t1337 test:t1338 test:t1339 test:t1340 test:t1341 test:t1346 test:t1348 test:t1353 test:t1350 test:t1355 test:t1356 test:t1347; do
             echo "== $s =="
             npm run "$s" || exit 1
           done

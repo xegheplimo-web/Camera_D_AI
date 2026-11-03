@@ -389,3 +389,21 @@ export const knowledgeMergeLog = pgTable(
     index("knowledge_merge_log_target_idx").on(t.targetId),
   ]
 );
+
+/**
+ * T-1356: quyết định "giữ riêng" theo CẶP (không bắc cầu). `fingerprint` là
+ * vân tay trường định danh của cả hai — định danh đổi thì quyết định hết hiệu lực.
+ */
+export const knowledgePairDecisions = pgTable(
+  "knowledge_pair_decisions",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "restrict" }),
+    minItemId: bigint("min_item_id", { mode: "number" }).notNull(),
+    maxItemId: bigint("max_item_id", { mode: "number" }).notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    decidedBy: integer("decided_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("knowledge_pair_decisions_uniq").on(t.tenantId, t.minItemId, t.maxItemId)]
+);

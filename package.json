@@ -32,6 +32,7 @@
     "test:t1353": "node --import tsx --test tests/t1353-normalize.test.ts",
     "test:t1350": "node --import tsx --test tests/t1350-duplicates.test.ts",
     "test:t1355": "node --import tsx --test tests/t1355-merge.test.ts",
+    "test:t1356": "node --import tsx --test tests/t1356-pairs.test.ts",
     "test:t1347": "node --import tsx --test tests/t1347-ffmpeg.test.ts",
     "db:push:dev": "drizzle-kit push"
   },
