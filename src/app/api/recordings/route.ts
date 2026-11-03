@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { db } from "@/db";
-import { cameraSettings } from "@/db/schema";
+import { cameraSettings, events } from "@/db/schema";
 import { authorize } from "@/lib/auth-server";
 import { HttpError } from "@/lib/http-guard";
 import { denied, fail, queryCameraId, withTenant } from "@/lib/knowledge/http";
@@ -25,24 +25,49 @@ function queryDate(u: URL, name: string): Date | undefined {
   return d;
 }
 
-/** GET /api/recordings?cameraId&from&to — danh sách segment đọc từ đĩa + storage; không cameraId → chỉ storage. */
+/** Parse ?day=YYYY-MM-DD → mốc 0h theo GIỜ ĐỊA PHƯƠNG của server; null khi không có tham số. */
+function queryDay(u: URL): { d0: Date; d1: Date } | null {
+  const raw = u.searchParams.get("day");
+  if (raw === null) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  const d0 = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  if (!d0 || !m || d0.getFullYear() !== Number(m[1]) || d0.getMonth() !== Number(m[2]) - 1 || d0.getDate() !== Number(m[3]))
+    throw new HttpError(400, "INVALID_DAY", "day phải có dạng YYYY-MM-DD hợp lệ.");
+  return { d0, d1: new Date(d0.getTime() + 86_400_000) };
+}
+
+/** GET /api/recordings?cameraId&from&to&day — segment đọc từ đĩa + storage; day → thêm events làm marker timeline. */
 export async function GET(req: Request) {
   return withTenant("read", async ({ tenantId }) => {
     const u = new URL(req.url);
     const cameraId = queryCameraId(u);
     const from = queryDate(u, "from");
     const to = queryDate(u, "to");
+    const day = queryDay(u);
     const storage = await storageStatus();
     let keys: string[] = [];
     let segments: Awaited<ReturnType<typeof listSegments>> = [];
+    let dayEvents: { id: number; type: string; at: string; label: string; assetId: number | null }[] | undefined;
     if (cameraId !== undefined) {
       const cam = await findRecordingCamera(tenantId, cameraId);
       if (!cam) return denied("camera", cameraId);
       keys = recordingKeysFor(cam);
       const lists = await Promise.all(keys.map((k) => listSegments(k, from, to)));
       segments = lists.flat().sort((a, b) => a.start.getTime() - b.start.getTime());
+      // T-1341 — marker sự kiện trong ngày cho timeline xem lại (tối đa 500, tăng dần).
+      if (day) {
+        const rows = await db
+          .select({ id: events.id, type: events.type, at: events.happenedAt, label: events.label, assetId: events.assetId })
+          .from(events)
+          .where(and(eq(events.tenantId, tenantId), eq(events.cameraId, cam.id), gte(events.happenedAt, day.d0), lt(events.happenedAt, day.d1)))
+          .orderBy(asc(events.happenedAt))
+          .limit(500);
+        dayEvents = rows.map((r) => ({ ...r, at: r.at.toISOString() }));
+      }
+    } else if (day) {
+      dayEvents = [];
     }
-    return Response.json({ cameraId: cameraId ?? null, keys, segments, storage });
+    return Response.json({ cameraId: cameraId ?? null, keys, segments, storage, ...(dayEvents !== undefined ? { events: dayEvents } : {}) });
   });
 }
 
