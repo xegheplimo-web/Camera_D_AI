@@ -3,6 +3,7 @@ import { chromium } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { randomBytes, scryptSync } from "node:crypto";
 import sharp from "sharp";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { db, pool } from "../src/db";
 import { users, sessions, messages, aiJobs, assets, extractions, auditLog } from "../src/db/schema";
 import { and, eq, inArray, like, or } from "drizzle-orm";
@@ -23,6 +24,7 @@ const pendingResponses: Promise<void>[] = [];
 
 try {
   const passwordHash = `scrypt$${salt}$${scryptSync(password, salt, 64).toString("hex")}`;
+  await ensureDefaultTenant();
   const [user] = await db.insert(users).values({ login: name, displayName: name, role: "owner", passwordHash }).returning();
   userId = user.id;
   const [viewer] = await db.insert(users).values({ login: viewerName, displayName: viewerName, role: "viewer", passwordHash }).returning();

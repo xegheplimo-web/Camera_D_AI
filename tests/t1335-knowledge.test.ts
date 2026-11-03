@@ -2,12 +2,13 @@ import "dotenv/config";
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freePort, loginUser, makeCall, wait, type Call } from "./helpers/http";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync } from "node:crypto";
 import { db, pool } from "../src/db";
 import {
   users, tenants, cameras, assets, sessions, auditLog,
-  knowledgeItems,
+  knowledgeItems, cameraSettings,
 } from "../src/db/schema";
 import { eq, inArray, like, or } from "drizzle-orm";
 
@@ -44,6 +45,7 @@ async function newItem(body: Record<string, unknown>, cookie = owner()) {
 before(async () => {
   const salt = randomBytes(16).toString("hex");
   const passwordHash = `scrypt$${salt}$${scryptSync(password, salt, 64).toString("hex")}`;
+  await ensureDefaultTenant();
   const [t2] = await db.insert(tenants).values({ slug: `${prefix}-t2`, name: `${prefix} tenant 2` }).returning();
   t2id = t2.id;
   const inserted = await db.insert(users).values([
@@ -105,15 +107,17 @@ test("PATCH settings camera A không đổi camera B; revision cũ ⇒ 409, revi
   assert.equal(a0.data.profile, "custom");
   assert.equal(a0.data.retentionDays, 7);
   assert.equal(a0.data.recordEnabled, false);
-  assert.equal(a0.data.capabilities.record, false, "recorder chưa tồn tại ⇒ record capability luôn false");
+  // T-1340: record phản ánh mediaMTX thật ⇒ boolean tuỳ môi trường; pricing vẫn luôn khoá phase này.
+  assert.equal(typeof a0.data.capabilities.record, "boolean");
+  assert.equal(a0.data.capabilities.pricing, false);
 
-  const p1 = await call(`/api/cameras/${camA}/settings`, "PATCH", { revision: 1, profile: "warehouse", retentionDays: 14, detectFps: 10, recordEnabled: true }, owner());
+  const p1 = await call(`/api/cameras/${camA}/settings`, "PATCH", { revision: 1, profile: "warehouse", retentionDays: 14, detectFps: 10 }, owner());
   assert.equal(p1.status, 200, JSON.stringify(p1.data));
   assert.equal(p1.data.revision, 2);
   assert.equal(p1.data.profile, "warehouse");
   assert.equal(p1.data.retentionDays, 14);
-  assert.equal(p1.data.recordEnabled, true);
-  assert.equal(p1.data.capabilities.record, false, "bật record_enabled vẫn không tạo capability khi chưa có recorder");
+  assert.equal(p1.data.recordEnabled, false, "payload không đụng recordEnabled ⇒ cờ giữ nguyên");
+  assert.equal(typeof p1.data.capabilities.record, "boolean");
 
   const b0 = await call(`/api/cameras/${camB}/settings`, "GET", undefined, owner());
   assert.equal(b0.status, 200);
@@ -133,6 +137,19 @@ test("PATCH settings camera A không đổi camera B; revision cũ ⇒ 409, revi
   assert.equal(p2.data.detectFps, 20);
 
   assert.equal((await call(`/api/cameras/${camA}/settings`, "PATCH", { detectFps: 9 }, owner())).status, 400, "thiếu revision ⇒ 400");
+});
+
+test("PATCH recordEnabled trên camera chưa có nguồn RTSP ⇒ 400 fail-closed, record_enabled không đổi", async () => {
+  const g = await call(`/api/cameras/${camB}/settings`, "GET", undefined, owner());
+  assert.equal(g.status, 200, JSON.stringify(g.data));
+  assert.equal(g.data.recordEnabled, false);
+
+  const r = await call(`/api/cameras/${camB}/settings`, "PATCH", { revision: g.data.revision, recordEnabled: true }, owner());
+  assert.equal(r.status, 400, JSON.stringify(r.data));
+  assert.equal(r.data.detail, "record_requires_rtsp", "bị chặn trước khi gọi recorder ⇒ độc lập mediaMTX");
+
+  const [row] = await db.select({ recordEnabled: cameraSettings.recordEnabled }).from(cameraSettings).where(eq(cameraSettings.cameraId, camB));
+  assert.equal(row?.recordEnabled, false, "persist() không chạy ⇒ record_enabled trong DB đứng yên, không báo bật giả");
 });
 
 /* ================= 2. Item + nhiều ảnh, mỗi ảnh note riêng ================= */

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { eq, inArray } from "drizzle-orm";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { db, pool } from "../src/db";
 import { assets, cameras, events } from "../src/db/schema";
 import {
@@ -62,6 +63,7 @@ async function jpegVariant(seed: number): Promise<Buffer> {
 }
 
 before(async () => {
+  await ensureDefaultTenant();
   const [row] = await db.insert(cameras).values({ code: "CAM-DETECT-T", name: cam.name, location: cam.location, sourceType: "rtsp", streamName: "dai_cam_0", status: "degraded" }).returning({ id: cameras.id });
   camId = row.id;
   cam.id = camId;

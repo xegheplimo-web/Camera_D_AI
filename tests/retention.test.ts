@@ -1,5 +1,5 @@
 import "dotenv/config";
-import test, { after } from "node:test";
+import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { desc, eq, sql, TransactionRollbackError } from "drizzle-orm";
 import { db, pool } from "../src/db";
 import { count, DAY_MS, FRESH, inTx, OLD, type Tx } from "./helpers/db";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { appSettings, assets, auditLog, cameras, events, extractions } from "../src/db/schema";
 import { purgeDemoData, retentionCutoff, runRetention, unlinkPending } from "../src/lib/retention";
 
@@ -24,6 +25,9 @@ process.env.DAI_DATA_DIR = testDataDir;
 const SHA = "b".repeat(64);
 
 
+before(async () => {
+  await ensureDefaultTenant(); // cameras/assets default tenant_id=1 — cần hàng tenants tương ứng
+});
 
 after(async () => {
   rmSync(testDataDir, { recursive: true, force: true });

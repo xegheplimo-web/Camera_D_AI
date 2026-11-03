@@ -19,7 +19,8 @@ type CamSettings = {
   privacyMasks: Record<string, unknown>[];
   notifyEnabled: boolean;
   revision: number;
-  capabilities?: { record?: boolean };
+  /** Server tính — xem GET /settings: cờ nào === true mới được bật; `reason` giải thích cờ khoá. `audio` = luồng có track âm thanh. */
+  capabilities?: Partial<Record<FlagKey | "audio", boolean>> & { reason?: Record<string, string> };
 };
 
 type KItem = { id: number; title: string; sku: string | null; note: string | null; priceVnd: number | null; createdAt: string };
@@ -37,8 +38,6 @@ const PROFILES: [string, string][] = [
 ];
 
 type FlagKey = "live" | "playback" | "snapshot" | "record" | "ask" | "pricing";
-// Các tính năng chưa có phần xử lý phía máy chủ trong phase này: luôn khoá + ghi "Chưa khả dụng", không lưu trạng thái bật.
-const UNAVAILABLE: readonly FlagKey[] = ["playback", "record", "pricing"];
 const FEATURE_LIST: { key: FlagKey; label: string }[] = [
   { key: "live", label: "Xem trực tiếp" },
   { key: "playback", label: "Xem lại" },
@@ -57,13 +56,6 @@ const flagsOf = (f: Record<string, unknown> | undefined): Record<FlagKey, boolea
   ask: f?.ask !== false,
   pricing: f?.pricing === true,
 });
-
-/** Trước khi ghi: tính năng chưa khả dụng luôn ép về false — không bao giờ lưu trạng thái bật. */
-const cleanFeatures = (f: Record<string, unknown>): Record<string, unknown> => {
-  const next = { ...f };
-  for (const k of UNAVAILABLE) next[k] = false;
-  return next;
-};
 
 const zoneLabel = (z: Record<string, unknown>, i: number, fallback: string) => {
   const n = z.name ?? z.label ?? z.title;
@@ -197,7 +189,9 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
     return ok;
   };
 
-  const setFlag = (key: FlagKey, v: boolean) => void save({ features: cleanFeatures({ ...s!.features, [key]: v }) });
+  // "Lưu video" lái cột record_enabled (control-plane thật qua recorder); các cờ còn lại vẫn là tuỳ chọn trong features.
+  const setFlag = (key: FlagKey, v: boolean) =>
+    void save(key === "record" ? { recordEnabled: v } : { features: { ...s!.features, [key]: v } });
 
   const name = nameD ?? cam.name;
   const loc = locD ?? cam.location;
@@ -215,7 +209,7 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
         setLocD(null);
       }
       if (note !== noteSaved) {
-        const f = cleanFeatures({ ...s.features });
+        const f = { ...s.features };
         if (note.trim()) f.note = note.trim();
         else delete f.note;
         if (await patchSettings({ features: f })) setNoteD(null);
@@ -351,6 +345,9 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
   };
 
   const flags = flagsOf(s?.features);
+  const recReady = s?.capabilities?.record === true;
+  const recReason = s?.capabilities?.reason?.record;
+  const hasAudio = recReady && s?.capabilities?.audio === true;
   const attachedAssets = new Set((detail?.images ?? []).map((im) => im.assetId));
   const fmtVnd = (v: number | null) => (v === null ? null : `${v.toLocaleString("vi-VN")} ₫`);
 
@@ -425,15 +422,19 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
           </label>
           <div className="mt-2 divide-y divide-white/5">
             {FEATURE_LIST.map((f) => {
-              const ready = !UNAVAILABLE.includes(f.key);
+              const ready = s ? s.capabilities?.[f.key] === true : false;
+              const reason = s?.capabilities?.reason?.[f.key];
               return (
                 <div key={f.key} data-feature={f.key} className="flex items-center justify-between gap-2 py-2 text-sm">
-                  <span className="min-w-0">{f.label}</span>
+                  <span className="min-w-0">
+                    {f.label}
+                    {!ready && reason ? <span className="block truncate text-[11px] font-normal text-slate-500">{reason}</span> : null}
+                  </span>
                   <span className="flex items-center gap-2">
-                    {!ready && <Badge color="slate">Chưa khả dụng</Badge>}
+                    {!ready && s && <Badge color="slate">Chưa khả dụng</Badge>}
                     <Switch
                       label={f.label}
-                      checked={ready ? flags[f.key] : false}
+                      checked={ready && (f.key === "record" ? s?.recordEnabled === true : flags[f.key])}
                       disabled={!ready || !s || saving}
                       onChange={(v) => setFlag(f.key, v)}
                     />
@@ -607,20 +608,23 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
               <Switch label="Bật thông báo & cảnh báo" checked={s?.notifyEnabled ?? false} disabled={!s || saving} onChange={(v) => void save({ notifyEnabled: v })} />
             </div>
             <div className="flex items-center justify-between gap-2 py-1 text-sm" data-flag="record">
-              <span>Ghi hình liên tục</span>
+              <span className="min-w-0">
+                Ghi hình liên tục
+                {!recReady && recReason ? <span className="block truncate text-[11px] font-normal text-slate-500">{recReason}</span> : null}
+              </span>
               <span className="flex items-center gap-2">
-                <Badge color="slate">Chưa khả dụng</Badge>
-                <Switch label="Ghi hình liên tục" checked={false} disabled />
+                {!recReady && s && <Badge color="slate">Chưa khả dụng</Badge>}
+                <Switch label="Ghi hình liên tục" checked={s?.recordEnabled ?? false} disabled={!recReady || saving} onChange={(v) => void save({ recordEnabled: v })} />
               </span>
             </div>
             <div className="flex items-center justify-between gap-2 py-1 text-sm" data-flag="recordAudio">
               <span>Ghi âm kèm video</span>
               <span className="flex items-center gap-2">
-                <Badge color="slate">Chưa khả dụng</Badge>
-                <Switch label="Ghi âm kèm video" checked={false} disabled />
+                <span className="text-[11px] text-slate-400">{hasAudio ? "Tự động theo luồng camera" : "Camera không có âm thanh"}</span>
+                <Badge color={hasAudio ? "emerald" : "slate"}>{hasAudio ? "Có âm thanh" : "Không có âm thanh"}</Badge>
               </span>
             </div>
-            <p className="text-[11px] text-slate-500">Ghi hình trên máy chủ sẽ mở ở phase sau; hiện chỉ lưu được ảnh chụp & clip trình duyệt.</p>
+            <p className="text-[11px] text-slate-500">Ghi hình chạy trên máy chủ (mediaMTX), không phụ thuộc trình duyệt. Tắt trình duyệt vẫn ghi tiếp.</p>
           </div>
         </Section>
 
