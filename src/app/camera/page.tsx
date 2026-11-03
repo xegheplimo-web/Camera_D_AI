@@ -24,6 +24,7 @@ export default function CameraPage() {
   const [saving, setSaving] = useState(false);
   const [role, setRole] = useState<string>("viewer");
   const [health, setHealth] = useState<Record<number, CamHealth>>({});
+  const [nowTs, setNowTs] = useState<number | null>(null);
   const [settingsId, setSettingsId] = useState<number | null>(null);
   const discovery = useRef<DiscoveryControls | null>(null);
   const registerDiscovery = useCallback((c: DiscoveryControls | null) => { discovery.current = c; }, []);
@@ -65,6 +66,13 @@ export default function CameraPage() {
     load();
   }, [load]);
 
+  // Đồng hồ cho timeline: đặt sau mount để HTML prerender và lần hydrate đầu khớp nhau.
+  useEffect(() => {
+    setNowTs(Date.now());
+    const t = setInterval(() => setNowTs(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
   // Trạng thái kết nối thật từ probe server (mediaMTX) — nhãn không đọc cột status DB.
   useEffect(() => {
     const tick = async () => { try { setHealth(await api<Record<number, CamHealth>>("/api/cameras/health")); } catch {} };
@@ -101,13 +109,16 @@ export default function CameraPage() {
     }
   };
 
-  // timeline buckets by hour (last 24h)
+  // Timeline 24 giờ. `nowTs` chỉ có sau khi mount: nếu tính bằng Date.now() ngay
+  // trong render thì HTML prerender lúc build sẽ lệch giờ so với lúc hydrate
+  // ⇒ React #418 (text content mismatch). Trước khi mount: 24 cột rỗng, không nhãn.
   const buckets = Array.from({ length: 24 }, (_, i) => {
-    const t = new Date(Date.now() - (23 - i) * 3600000);
+    if (nowTs == null) return { h: null as number | null, items: [] as EventItem[] };
+    const t = new Date(nowTs - (23 - i) * 3600000);
     const h = t.getHours();
     const items = events.filter((e) => {
       const d = new Date(e.happenedAt);
-      return Date.now() - d.getTime() < 24 * 3600000 && d.getHours() === h && Math.abs(d.getTime() - t.getTime()) < 3600000 * 1.01;
+      return nowTs - d.getTime() < 24 * 3600000 && d.getHours() === h && Math.abs(d.getTime() - t.getTime()) < 3600000 * 1.01;
     });
     return { h, items };
   });
@@ -129,9 +140,9 @@ export default function CameraPage() {
         <Card title="Dòng thời gian 24 giờ">
           <div className="flex h-20 items-end gap-1">
             {buckets.map((b, i) => (
-              <div key={i} className="flex flex-1 flex-col items-center gap-1" title={`${b.h}h: ${b.items.length} sự kiện`}>
+              <div key={i} className="flex flex-1 flex-col items-center gap-1" title={b.h == null ? "" : `${b.h}h: ${b.items.length} sự kiện`}>
                 <div className="w-full rounded-t bg-gradient-to-t from-cyan-700 to-cyan-300" style={{ height: `${(b.items.length / maxB) * 60 + (b.items.length ? 3 : 1)}px`, opacity: b.items.length ? 1 : 0.25 }} />
-                <span className="text-[8px] text-slate-400">{i % 3 === 0 ? `${b.h}h` : ""}</span>
+                <span className="text-[8px] text-slate-400">{b.h != null && i % 3 === 0 ? `${b.h}h` : ""}</span>
               </div>
             ))}
           </div>
