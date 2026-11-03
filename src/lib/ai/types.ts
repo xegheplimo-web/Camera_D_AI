@@ -1,6 +1,6 @@
 import type { AnswerPayload } from "@/db/schema";
 
-export type JobKind = "report" | "extract";
+export type JobKind = "report" | "extract" | "asset.index";
 export type JobState = "queued" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
 export type JobRoute = "hermes" | "worker" | "fallback";
 export type ToolName = "memory.summary" | "memory.events" | "vision.extract" | "ocr.extract";

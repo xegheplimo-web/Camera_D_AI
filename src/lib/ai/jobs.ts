@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "@/db";
 import { aiJobs, assets, extractions, messages, auditLog, sessions, users, type ExtractionResult } from "@/db/schema";
-import { and, asc, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { assetReadScope, authorizeResource } from "@/lib/scope";
 import type { SessionPayload } from "@/lib/token";
 import { AiError, errorInfo, TERMINAL, type JobInput, type JobKind, type JobResult, type JobView, type Step, type ToolName } from "./types";
@@ -10,6 +10,7 @@ import { answerBasedOnDemo } from "@/lib/chat-demo";
 import { hermesPlan } from "./hermes";
 import { summaryWorker, evidenceWorker, buildReport, type MemorySummary } from "./memory-worker";
 import { imageWorker, assetImage, mergeImageResults } from "./vision-worker";
+import { serviceConfig } from "./services";
 
 export type JobRow = typeof aiJobs.$inferSelect;
 export const MAX_ATTEMPTS = 3;
@@ -32,8 +33,8 @@ export async function enqueueJob(kind: JobKind, input: JobInput, session: Sessio
   const inputHash = createHash("sha256").update(JSON.stringify({ kind, ...identity, draft })).digest("hex");
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(34215, ${session.sub})`);
-    // Object-level check is re-verified at admission: an extract job may only read in-scope media.
-    if (kind === "extract") {
+    // Object-level check is re-verified at admission: an extract/index job may only read in-scope media.
+    if (kind === "extract" || kind === "asset.index") {
       const [asset] = await tx.select({ id: assets.id }).from(assets).where(and(eq(assets.id, input.assetId ?? -1), assetReadScope(session))).limit(1);
       if (!asset) throw new AiError("ASSET_NOT_FOUND", "Không tìm thấy ảnh gốc trong phạm vi được phép.", 404);
     }
@@ -57,9 +58,9 @@ export async function enqueueJob(kind: JobKind, input: JobInput, session: Sessio
     }
     const [job] = await tx.insert(aiJobs).values({
       id: randomUUID(), userId: session.sub, sessionId: session.sid, requester: session.name,
-      requesterDevice: session.device, kind, title: draft?.title ?? input.question ?? "Tác vụ AI",
+      requesterDevice: session.device, kind, title: draft?.title ?? input.question ?? (kind === "asset.index" ? "Chỉ mục ảnh" : "Tác vụ AI"),
       input: savedInput, inputHash, idempotencyKey: key,
-      route: kind === "extract" && requiredTools(kind, input.note, input.taskType).length === 1 ? "worker" : "hermes",
+      route: kind === "asset.index" || (kind === "extract" && requiredTools(kind, input.note, input.taskType).length === 1) ? "worker" : "hermes",
       steps: [{ id: "gateway", worker: "Dịch vụ AI", label: "Xác thực, kiểm tra quyền và lưu yêu cầu", state: "succeeded" }],
     }).returning();
     if (kind === "report") {
@@ -126,6 +127,11 @@ export async function runJob(id: string) {
     if (!allowed || (job.kind === "extract" && allowed.role === "viewer")) throw new AiError("SESSION_REVOKED", "Phiên tạo tác vụ đã hết hạn, bị thu hồi hoặc không còn quyền.", 401);
     // Workers always query under the requester's scope — output can never outlive their permissions.
     const requester: SessionPayload = { sid: job.sessionId, sub: job.userId, name: job.requester, role: allowed.role as SessionPayload["role"], device: job.requesterDevice, exp: 0 };
+
+    if (job.kind === "asset.index") {
+      await indexAsset(job, requester, { signal, steps, running, started, persist });
+      return;
+    }
 
     let tools = requiredTools(job.kind, job.input.note, job.input.taskType);
     const useHermes = job.kind === "report" || tools.length > 1;
@@ -236,6 +242,66 @@ export async function runJob(id: string) {
     if (failed && job.input.extractionId) await db.update(extractions).set({ status: "FAILED", updatedAt: new Date() }).where(and(eq(extractions.id, job.input.extractionId), eq(extractions.status, "PROCESSING")));
   } finally {
     controllers.delete(id);
+  }
+}
+
+/** Lỗi không nên thử lại: cấu hình/consent/quyền/ảnh nguồn sẽ không tự khắc phục sau backoff. */
+const INDEX_TERMINAL_CODES = new Set([
+  "CONSENT_REQUIRED", "NOT_CONFIGURED", "INVALID_CONFIG", "MISSING_API_KEY", "MISSING_MODEL", "TLS_REQUIRED", "HERMES_DISABLED",
+  "ASSET_NOT_FOUND", "ASSET_UNAVAILABLE", "IMAGE_TOO_LARGE", "INVALID_IMAGE", "NO_WORKER_RESULT",
+  "SESSION_REVOKED", "CANCELLED", "IDEMPOTENCY_CONFLICT", "UNKNOWN_TASK", "QUEUE_FULL", "RATE_LIMITED", "MAX_ATTEMPTS",
+]);
+
+const INDEX_NOTE = "Lập chỉ mục ảnh: mô tả ngắn nội dung và đọc mọi văn bản, nhãn hoặc mã nhìn thấy trong ảnh.";
+
+type IndexCtx = { signal: AbortSignal; steps: Step[]; running: SQL | undefined; started: number; persist: (progress: number) => Promise<void> };
+
+/**
+ * asset.index: một worker duy nhất (OCR nếu đã cấu hình, ngược lại mô tả ảnh) đọc nội dung
+ * ảnh rồi ghi vào extractions taskType="index" — không planner, không model lớn. Lỗi tạm
+ * được backoff bằng lease (job vẫn "running", dispatcher chỉ nhận lại khi lease hết,
+ * attempts tăng dần tới MAX_ATTEMPTS); lỗi vĩnh viễn fail ngay với đúng error_code.
+ */
+async function indexAsset(job: JobRow, requester: SessionPayload, ctx: IndexCtx) {
+  const step: Step = { id: "index", worker: "Nhận diện hình ảnh", label: "Đọc nội dung ảnh để phục vụ tìm kiếm", state: "running", startedAt: new Date().toISOString() };
+  ctx.steps.push(step);
+  await ctx.persist(40);
+  const t = Date.now();
+  try {
+    ctx.signal.throwIfAborted();
+    const service = serviceConfig("ocr") ? "ocr" : serviceConfig("vision") ? "vision" : null;
+    if (!service) throw new AiError("NOT_CONFIGURED", "Chưa cấu hình dịch vụ xử lý ảnh để lập chỉ mục.", 503);
+    const image = await assetImage(job.input.assetId!, null, requester);
+    const extraction = await imageWorker(service, { ...job.input, note: INDEX_NOTE, taskType: service === "ocr" ? "ocr" : "describe" }, job.id, ctx.signal, image, requester);
+    if (image.demo) extraction.warnings.push("Ảnh đầu vào là ảnh mẫu do AI tạo, không phải camera thực.");
+    step.state = "succeeded";
+    step.durationMs = Date.now() - t;
+    ctx.steps.push({ id: "complete", worker: "Dịch vụ AI", label: "Lưu kết quả chỉ mục ảnh", state: "succeeded" });
+    await db.transaction(async (tx) => {
+      // Row lock serializes cancellation with result commit, even on different server instances.
+      const [current] = await tx.select().from(aiJobs).where(ctx.running).for("update").limit(1);
+      if (!current) return;
+      const [asset] = await tx.select({ tenantId: assets.tenantId }).from(assets).where(eq(assets.id, job.input.assetId!)).limit(1);
+      const [ex] = await tx.insert(extractions).values({ tenantId: asset?.tenantId ?? job.tenantId, assetId: job.input.assetId!,
+        title: "Chỉ mục ảnh", note: "", taskType: "index", status: "REVIEW_REQUIRED",
+        rawResult: extraction, result: extraction, source: image.demo ? "demo" : "live",
+        createdBy: job.requester, userId: job.userId }).returning({ id: extractions.id });
+      await tx.update(aiJobs).set({ state: "succeeded", result: { extractionId: ex.id }, steps: ctx.steps, progress: 100, route: "worker", finishedAt: new Date(), updatedAt: new Date(), leaseUntil: null }).where(ctx.running);
+      await tx.insert(auditLog).values({ actor: job.requester, device: job.requesterDevice, action: "ai.job.succeeded", targetType: "job", targetId: job.id, detail: `index; ${Date.now() - ctx.started}ms` });
+    });
+  } catch (e) {
+    if (ctx.signal.aborted) throw e;
+    step.state = "failed";
+    step.durationMs = Date.now() - t;
+    const info = errorInfo(e);
+    step.note = `${info.code}: ${info.message}`;
+    if (!INDEX_TERMINAL_CODES.has(info.code) && job.attempts < MAX_ATTEMPTS) {
+      await db.update(aiJobs).set({ errorCode: info.code, error: info.message, steps: ctx.steps,
+        leaseUntil: new Date(Date.now() + 2_000 * 2 ** (job.attempts - 1)), updatedAt: new Date() }).where(ctx.running);
+    } else {
+      await db.update(aiJobs).set({ state: "failed", steps: ctx.steps, route: "worker", errorCode: info.code, error: info.message, leaseUntil: null, finishedAt: new Date(), updatedAt: new Date() }).where(ctx.running);
+      await db.insert(auditLog).values({ actor: job.requester, device: job.requesterDevice, action: "ai.job.failed", targetType: "job", targetId: job.id, detail: `index; ${info.code}` });
+    }
   }
 }
 

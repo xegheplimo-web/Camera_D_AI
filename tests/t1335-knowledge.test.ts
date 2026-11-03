@@ -1,7 +1,7 @@
 import "dotenv/config";
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { freePort, loginUser, makeCall, wait, type Call } from "./helpers/http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync } from "node:crypto";
 import { db, pool } from "../src/db";
@@ -20,33 +20,19 @@ import { eq, inArray, like, or } from "drizzle-orm";
 const prefix = `t1335_${randomBytes(5).toString("hex")}`;
 const password = randomBytes(24).toString("hex");
 let app: ChildProcess, base: string;
+const call: Call = makeCall(() => base);
 const cookies: Record<string, string> = {};
 const userIds: number[] = [];
 const itemIds: number[] = [];
 let t2id = 0, camA = 0, camB = 0, camC = 0, a1 = 0, a2 = 0, a3 = 0, t2asset = 0, t2ItemId = 0;
 let logs = "";
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function freePort() { const s = createServer(); await new Promise<void>((r) => s.listen(0, "127.0.0.1", r)); const n = (s.address() as { port: number }).port; await new Promise<void>((r) => s.close(() => r())); return n; }
-async function call(path: string, method = "GET", body?: unknown, cookie = "", headers: Record<string, string> = {}) {
-  const response = await fetch(base + path, {
-    method,
-    headers: { ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    redirect: "manual",
-  });
-  const raw = await response.text();
-  let data: any; try { data = JSON.parse(raw); } catch { data = { raw: raw.slice(0, 300) }; }
-  return { status: response.status, data, headers: response.headers };
-}
 const owner = () => cookies.owner;
 const operator = () => cookies.operator;
 const viewer = () => cookies.viewer;
 const t2owner = () => cookies.t2owner;
 async function login(who: string) {
-  const r = await call("/api/auth/login", "POST", { login: `${prefix}_${who}`, password });
-  assert.equal(r.status, 200, JSON.stringify(r.data));
-  cookies[who] = r.headers.get("set-cookie")!.split(";")[0];
+  cookies[who] = await loginUser(call, prefix, password, who);
 }
 async function newItem(body: Record<string, unknown>, cookie = owner()) {
   const r = await call("/api/knowledge/items", "POST", body, cookie);

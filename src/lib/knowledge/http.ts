@@ -32,3 +32,12 @@ export async function withTenant(
 export function asObject(body: unknown): Record<string, unknown> {
   return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
 }
+
+/** Parse ?cameraId= — undefined khi thiếu tham số; 400 khi không phải số nguyên dương. */
+export function queryCameraId(u: URL): number | undefined {
+  const raw = u.searchParams.get("cameraId");
+  if (raw === null) return undefined;
+  const id = Number(raw);
+  if (!Number.isSafeInteger(id) || id <= 0) throw new HttpError(400, "INVALID_CAMERA", "cameraId phải là số nguyên dương.");
+  return id;
+}
