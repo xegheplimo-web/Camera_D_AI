@@ -33,6 +33,7 @@
     "test:t1350": "node --import tsx --test tests/t1350-duplicates.test.ts",
     "test:t1355": "node --import tsx --test tests/t1355-merge.test.ts",
     "test:t1356": "node --import tsx --test tests/t1356-pairs.test.ts",
+    "test:t1361": "node --import tsx --test tests/t1361-embeddings.test.ts",
     "test:t1347": "node --import tsx --test tests/t1347-ffmpeg.test.ts",
     "db:push:dev": "drizzle-kit push"
   },
@@ -42,6 +43,7 @@
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.66.0",
     "next": "^16.4.3",
+    "onnxruntime-node": "^1.31.1",
     "pg": "8.20.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",

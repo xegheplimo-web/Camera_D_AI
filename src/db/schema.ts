@@ -13,7 +13,11 @@ import {
   index,
   uniqueIndex,
   check,
+  customType,
 } from "drizzle-orm/pg-core";
+
+/** bytea: vector float32 đóng gói thô (little-endian) — không phụ thuộc extension. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 /* ---------------- Identity (G2 security foundation) ---------------- */
 
@@ -334,6 +338,8 @@ export const knowledgeImages = pgTable(
     tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "restrict" }),
     itemId: bigint("item_id", { mode: "number" }).notNull().references(() => knowledgeItems.id, { onDelete: "cascade" }),
     assetId: integer("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+    /** T-1361: chỉ bật khi chủ cửa hàng đồng ý chia sẻ ảnh vào thư viện chung. */
+    shareToLibrary: boolean("share_to_library").notNull().default(false),
     note: text("note"),
     position: integer("position").notNull().default(0),
     createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -394,6 +400,40 @@ export const knowledgeMergeLog = pgTable(
  * T-1356: quyết định "giữ riêng" theo CẶP (không bắc cầu). `fingerprint` là
  * vân tay trường định danh của cả hai — định danh đổi thì quyết định hết hiệu lực.
  */
+/** T-1361: registry model dùng cho embedding (license phải ghi rõ để đóng gói NOTICE). */
+export const modelRegistry = pgTable("model_registry", {
+  key: text("key").primaryKey(),
+  version: text("version").notNull(),
+  license: text("license").notNull(),
+  sourceUrl: text("source_url"),
+  dim: integer("dim").notNull(),
+  sha256: text("sha256"),
+  installedAt: timestamp("installed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** T-1361: vector ảnh sản phẩm, LƯU THEO TENANT — không trộn dữ liệu cửa hàng. */
+export const productEmbeddings = pgTable(
+  "product_embeddings",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "restrict" }),
+    itemId: bigint("item_id", { mode: "number" }).notNull(),
+    /** 0 = embedding cấp item; > 0 = ảnh cụ thể (NOT NULL để unique index làm arbiter). */
+    imageId: bigint("image_id", { mode: "number" }).notNull().default(0),
+    model: text("model").notNull(),
+    modelVersion: text("model_version").notNull(),
+    dim: integer("dim").notNull(),
+    vec: bytea("vec").notNull(),
+    norm: real("norm").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("product_embeddings_uniq").on(t.tenantId, t.itemId, t.imageId, t.model, t.modelVersion),
+    index("product_embeddings_tenant_model_idx").on(t.tenantId, t.model, t.modelVersion),
+    index("product_embeddings_item_idx").on(t.itemId),
+  ]
+);
+
 export const knowledgePairDecisions = pgTable(
   "knowledge_pair_decisions",
   {

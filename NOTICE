@@ -1,0 +1,6 @@
+
+## Model nhận diện sản phẩm (không kèm trong repo)
+
+- `onnx-community/dinov2-small` (ONNX int8), license **apache-2.0** — tải bằng
+  `node scripts/fetch-retail-model.mjs`. Không phân phối lại checkpoint trong gói cài.
+- `onnxruntime-node` (MIT) — phụ thuộc runtime, không sửa đổi.
