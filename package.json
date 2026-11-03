@@ -27,6 +27,7 @@
     "test:t1339": "node --import tsx --test tests/t1339-settings-tabs.test.ts",
     "test:t1340": "node --import tsx --test tests/t1340-recorder.test.ts",
     "test:t1341": "node --import tsx --test tests/t1341-clip.test.ts",
+    "test:t1346": "node --import tsx --test tests/t1346-detector-lease.test.ts",
     "db:push:dev": "drizzle-kit push"
   },
   "dependencies": {
