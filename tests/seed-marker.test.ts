@@ -1,10 +1,11 @@
 import "dotenv/config";
-import test, { after } from "node:test";
+import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { eq, inArray, sql, TransactionRollbackError } from "drizzle-orm";
 import { db, pool } from "../src/db";
 import { appSettings, cameras, events } from "../src/db/schema";
 import { demoAlreadySeeded, markDemoSeeded, DEMO_SEEDED_KEY } from "../src/lib/seed";
+import { ensureDefaultTenant } from "./helpers/tenant";
 
 /**
  * T-1305b — marker "đã seed demo" và dấu hiệu topology demo.
@@ -36,6 +37,10 @@ async function clearDemoSignals(tx: Tx) {
   await tx.delete(events).where(eq(events.source, "demo"));
   await tx.delete(cameras).where(inArray(cameras.code, ["CAM-01", "CAM-02", "CAM-03", "CAM-04"]));
 }
+
+before(async () => {
+  await ensureDefaultTenant();
+});
 
 after(async () => {
   await pool.end();

@@ -78,6 +78,12 @@ jobs:
         run: npm ci
       - name: Push DB schema
         run: npx drizzle-kit push
+      - name: Seed default tenant
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "insert into tenants (id, slug, name) values (1, 'default', 'Default tenant') on conflict (id) do nothing;"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "select setval(pg_get_serial_sequence('tenants','id'), greatest(1, (select coalesce(max(id),1) from tenants)));"
       - name: Build (Next.js)
         run: npm run build
       - name: Integration + unit tests

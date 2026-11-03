@@ -5,6 +5,7 @@ import { createServer, type Server } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync, randomUUID, createHash } from "node:crypto";
 import sharp from "sharp";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { db, pool } from "../src/db";
 import { users, cameras, events, assets, messages, aiJobs, aiServices, sessions, extractions, appSettings, auditLog } from "../src/db/schema";
 import { and, eq, inArray, like } from "drizzle-orm";
@@ -48,6 +49,7 @@ async function settle(id: string) {
 async function clearBreaker() { await db.delete(aiServices).where(inArray(aiServices.name, ["hermes", "vision", "ocr", "voice"])); }
 
 before(async () => {
+  await ensureDefaultTenant();
   settingsBefore = await db.select().from(appSettings);
   healthBefore = await db.select().from(aiServices);
   for (const [key, value] of [["hermesEnabled", true], ["remoteProcessingAllowed", false], ["demoMode", false]] as const)

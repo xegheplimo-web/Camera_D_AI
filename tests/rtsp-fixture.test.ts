@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { randomBytes, scryptSync } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import sharp from "sharp";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { db, pool } from "../src/db";
 import { users, cameras, events, sessions, messages, aiJobs, auditLog } from "../src/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
@@ -216,6 +217,7 @@ before(async () => {
   await pollUntil(mtxPathReady, 60_000, 1_000, "mediamtx path g2cam ready + publisher");
   await pollUntil(async () => { try { return (await fetch(`${GO2RTC}/api`, { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; } }, 30_000, 500, "go2rtc api");
   // 3. DB fixtures + app spawn (giống harness ai-integration/scope-rbac).
+  await ensureDefaultTenant(); // POST /api/cameras ghi camera_settings tenant_id=1 (FK)
   const salt = randomBytes(16).toString("hex");
   const passwordHash = `scrypt$${salt}$${scryptSync(password, salt, 64).toString("hex")}`;
   const inserted = await db.insert(users).values(["owner", "viewer"].map((role) => ({ login: `${prefix}_${role}`, displayName: `${prefix}_${role}`, role, passwordHash }))).returning();

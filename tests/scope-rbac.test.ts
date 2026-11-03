@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync, randomUUID, createHash } from "node:crypto";
 import sharp from "sharp";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { db, pool } from "../src/db";
 import { users, cameras, events, assets, messages, aiJobs, sessions, extractions, appSettings, auditLog } from "../src/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
@@ -47,6 +48,7 @@ async function login(who: string) {
 }
 
 before(async () => {
+  await ensureDefaultTenant();
   settingsBefore = await db.select().from(appSettings);
   for (const [key, value] of [["demoMode", true], ["remoteProcessingAllowed", false]] as const)
     await db.insert(appSettings).values({ key, value }).onConflictDoUpdate({ target: appSettings.key, set: { value } });

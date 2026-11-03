@@ -7,6 +7,7 @@ import { randomBytes, scryptSync, createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import sharp from "sharp";
 import { chromium, type Browser, type BrowserContext, type Page, type Route } from "@playwright/test";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { db, pool } from "../src/db";
 import { users, cameras, assets, events, sessions, auditLog, knowledgeItems } from "../src/db/schema";
 import { inArray, like, or } from "drizzle-orm";
@@ -87,6 +88,7 @@ before(async () => {
 
   const salt = randomBytes(16).toString("hex");
   const passwordHash = `scrypt$${salt}$${scryptSync(password, salt, 64).toString("hex")}`;
+  await ensureDefaultTenant();
   const [owner] = await db.insert(users).values({ login: `${prefix}_owner`, displayName: `${prefix}_owner`, role: "owner", passwordHash }).returning();
   ownerId = owner.id;
 

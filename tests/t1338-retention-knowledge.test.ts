@@ -1,5 +1,5 @@
 import "dotenv/config";
-import test, { after } from "node:test";
+import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import { desc, eq, sql, TransactionRollbackError } from "drizzle-orm";
 import { db, pool } from "../src/db";
 import { count, DAY_MS, FRESH, inTx, OLD, type Tx } from "./helpers/db";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { appSettings, assets, auditLog, cameras, events, knowledgeImages, knowledgeItems, tenants } from "../src/db/schema";
 import { purgeDemoData, runRetention, unlinkPending } from "../src/lib/retention";
 
@@ -52,6 +53,10 @@ async function linkKnowledge(tx: Tx, tenantId: number, assetId: number, title: s
   const [item] = await tx.insert(knowledgeItems).values({ tenantId, title }).returning();
   await tx.insert(knowledgeImages).values({ tenantId, itemId: item.id, assetId, note: "ảnh trí nhớ" });
 }
+
+before(async () => {
+  await ensureDefaultTenant(); // cameras default tenant_id=1 — migration 008 gắn FK tenants
+});
 
 after(async () => {
   rmSync(testDataDir, { recursive: true, force: true });

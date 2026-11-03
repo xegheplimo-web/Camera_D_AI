@@ -2,6 +2,7 @@ import "dotenv/config";
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freePort, loginUser, makeCall, wait, type Call } from "./helpers/http";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { createServer, type Server } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, utimesSync } from "node:fs";
@@ -94,6 +95,7 @@ before(async () => {
 
   const salt = randomBytes(16).toString("hex");
   const passwordHash = `scrypt$${salt}$${scryptSync(password, salt, 64).toString("hex")}`;
+  await ensureDefaultTenant(); // tenant 2 phải lấy id≥2 — trùng id=1 phá cross-tenant + FK camera_settings
   const [t2] = await db.insert(tenants).values({ slug: `${prefix}-t2`, name: `${prefix} tenant 2` }).returning();
   t2id = t2.id;
   const inserted = await db.insert(users).values([

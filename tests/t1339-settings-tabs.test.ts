@@ -2,6 +2,7 @@ import "dotenv/config";
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freePort, loginUser, makeCall, wait, type Call } from "./helpers/http";
+import { ensureDefaultTenant } from "./helpers/tenant";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -42,6 +43,7 @@ before(async () => {
 
   const salt = randomBytes(16).toString("hex");
   const passwordHash = `scrypt$${salt}$${scryptSync(password, salt, 64).toString("hex")}`;
+  await ensureDefaultTenant();
   const inserted = await db.insert(users).values([
     { login: `${prefix}_owner`, displayName: `${prefix}_owner`, role: "owner", passwordHash },
     { login: `${prefix}_operator`, displayName: `${prefix}_operator`, role: "operator", passwordHash },
