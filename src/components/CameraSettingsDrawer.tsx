@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { ArrowLeft, Film, ImagePlus, Loader2, Plus, Save, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api, blobToDataUrl, fileToDataUrl, uploadDataUrl } from "@/lib/client";
 import { Badge } from "./ui";
@@ -712,8 +713,10 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
                             <Film className="h-6 w-6 text-slate-400" />
                           </span>
                         ) : upPreview?.startsWith("blob:") ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={upPreview} alt="Ảnh xem trước" className="h-16 w-24 shrink-0 rounded-md object-cover" />
+                          // next/image: blob: URL được Next tự đánh dấu unoptimized (get-img-props),
+                          // render đúng <img src="blob:...">; dùng component thay vì thẻ thô để
+                          // không tạo sink DOM-attribute cho CodeQL (js/xss-through-dom).
+                          <Image src={upPreview} alt="Ảnh xem trước" width={96} height={64} className="h-16 w-24 shrink-0 rounded-md object-cover" />
                         ) : (
                           <span className="flex h-16 w-24 shrink-0 items-center justify-center rounded-md bg-white/5 text-[10px] text-slate-500">
                             Không xem trước được
