@@ -1,20 +1,33 @@
 // Smoke thật cho CAM-UI-001: vào/ra toàn màn hình bằng nút + bằng ESC.
-// Chạy: DAI_TEST_BASE_URL=http://localhost:3000 node --import tsx tests/cam-ui-fullscreen.smoke.ts
+// Chạy: node --import tsx tests/cam-ui-fullscreen.smoke.ts
+// Nếu DAI_TEST_BASE_URL được set thì dùng server đó; nếu không thì script tự
+// start `next start` trên port trống (pattern giống tests/t1336-ux.test.ts) để
+// luôn kiểm đúng code vừa build, không phụ thuộc app đang chạy ở :3000.
 import "dotenv/config";
 import { chromium } from "@playwright/test";
 import { randomBytes, scryptSync } from "node:crypto";
+import { createServer } from "node:http";
+import { spawn, type ChildProcess } from "node:child_process";
 import { ensureDefaultTenant } from "./helpers/tenant";
 import { db } from "../src/db";
 import { users, cameras } from "../src/db/schema";
 import { eq } from "drizzle-orm";
 
-const base = process.env.DAI_TEST_BASE_URL ?? "http://localhost:3000";
+const explicitBase = process.env.DAI_TEST_BASE_URL;
 const results: string[] = [];
 let failed = 0;
 function check(name: string, ok: boolean, extra = "") {
   const suffix = extra ? ` — ${extra}` : "";
   results.push(`${ok ? "PASS" : "FAIL"}: ${name}${suffix}`);
   if (!ok) failed++;
+}
+
+async function freePort(): Promise<number> {
+  const s = createServer();
+  await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
+  const n = (s.address() as { port: number }).port;
+  await new Promise<void>((r) => s.close(() => r()));
+  return n;
 }
 
 const name = `smoke_fs_${randomBytes(5).toString("hex")}`;
@@ -24,9 +37,32 @@ const passwordHash = `scrypt$${salt}$${scryptSync(password, salt, 64).toString("
 let userId: number | undefined;
 let cameraId: number | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+let server: ChildProcess | undefined;
+let base = explicitBase ?? "http://localhost:3000";
+
+// Tự start server khi không được chỉ định — đảm bảo smoke luôn kiểm đúng
+// code vừa build (app ở :3000 có thể là bản cũ chưa có nút toggle).
+async function ensureServer(): Promise<void> {
+  if (explicitBase) return;
+  const port = await freePort();
+  base = `http://127.0.0.1:${port}`;
+  server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-p", String(port)], {
+    env: { ...process.env, NODE_ENV: "production" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  for (let i = 0; i < 60; i++) {
+    try {
+      const r = await fetch(`${base}/login`, { redirect: "manual" });
+      if (r.status > 0) return;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("next start không lên trong 30s");
+}
 
 async function main() {
   try {
+    await ensureServer();
     await ensureDefaultTenant();
     const [u] = await db.insert(users).values({ login: name, displayName: name, role: "owner", passwordHash }).returning();
     userId = u.id;
@@ -155,6 +191,7 @@ async function main() {
     check("script chạy không exception", false, (e as Error).message);
   } finally {
     try { if (browser) await browser.close(); } catch {}
+    try { if (server) server.kill(); } catch {}
     try { if (cameraId) await db.delete(cameras).where(eq(cameras.id, cameraId)); } catch {}
     try { if (userId) await db.delete(users).where(eq(users.id, userId)); } catch {}
     console.log("\n=== KẾT QUẢ SMOKE FULLSCREEN ===");
