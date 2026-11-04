@@ -7,7 +7,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync } from "node:crypto";
 import { existsSync } from "node:fs";
 import { db, pool } from "../src/db";
-import { tenants, users, sessions, auditLog } from "../src/db/schema";
+import { tenants, users, sessions, cameras, events, auditLog } from "../src/db/schema";
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { audit } from "../src/lib/audit";
 
@@ -17,11 +17,12 @@ import { audit } from "../src/lib/audit";
  *     actor đó ⇒ GET /api/admin của A chỉ trả row tenant_id=A (assert theo id —
  *     cơ chế display_name cũ sẽ lọt row B vì cùng tên).
  *   - Row tenant_id NULL (legacy/system) không hiện ở tenant nào.
- *   - alert.ack ghi qua audit() trong request đăng nhập ⇒ tenant_id = tenant
- *     của session (assert trực tiếp DB).
- *   - Negative: user bị xoá khỏi users mà JWT còn hạn ⇒ proxy chặn mọi route
- *     cần session (serverSession join users = null), còn /api/auth/login (public)
- *     vẫn 200 — audit() trong đó không throw và ghi row tenant_id=NULL.
+ *   - alert.ack: zero-match ⇒ 404 trước khi audit() chạy (không ghi row); ack
+ *     event thật ⇒ 200 + đúng 1 row ghi tenant của session (assert trực tiếp DB).
+ *   - User bị xoá khỏi users mà JWT còn hạn (cookie chết): login owner_b vẫn 200
+ *     và auth.login ghi danh tính owner_b — danh tính lấy từ user row vừa xác
+ *     thực, không phải cookie chết (H-01h); request không resolve được danh
+ *     tính nào (login fail + cookie chết) ⇒ row actor/tenant_id NULL.
  *   - audit() gọi ngoài request context (worker) ⇒ không crash.
  * Suite không phá huỷ: chỉ dựng fixture riêng (tenant/user/audit) và dọn sau.
  */
@@ -37,6 +38,7 @@ const tenantIds: number[] = [];
 const auditIds: number[] = [];
 const logoutSids: string[] = [];
 let tA = 0, tB = 0, ghostId = 0;
+let camA = 0, evA = 0;
 let rowA = 0, rowB = 0, rowNull = 0;
 let logs = "";
 
@@ -77,6 +79,12 @@ before(async () => {
   userIds.push(...inserted.map((u) => u.id));
   ghostId = inserted.find((u) => u.login === `${prefix}_ghost`)!.id;
 
+  // 1 camera + 1 event tenant A — fixture cho ca ack thật của (c).
+  const [cam] = await db.insert(cameras).values({ tenantId: tA, code: `${prefix}_cam`, name: `${prefix}_cam`, location: "A-site" }).returning({ id: cameras.id });
+  camA = cam.id;
+  const [ev] = await db.insert(events).values({ tenantId: tA, cameraId: camA, type: "alert", label: `${prefix}_ev`, priority: "critical", source: "live" }).returning({ id: events.id });
+  evA = ev.id;
+
   // 3 hàng audit trực tiếp: A, B (cùng actor SHARED_NAME), và hệ thống tenant NULL.
   const rows = await db
     .insert(auditLog)
@@ -107,6 +115,9 @@ after(async () => {
   if (logoutSids.length) await db.delete(auditLog).where(and(eq(auditLog.action, "auth.logout"), inArray(auditLog.targetId, logoutSids)));
   await db.delete(auditLog).where(and(eq(auditLog.action, "alert.ack"), eq(auditLog.actor, SHARED_NAME)));
   await db.delete(auditLog).where(and(eq(auditLog.action, "auth.login"), inArray(auditLog.targetId, userIds.map(String))));
+  await db.delete(auditLog).where(and(eq(auditLog.action, "auth.login_failed"), like(auditLog.targetId, `${prefix}%`)));
+  await db.delete(events).where(inArray(events.tenantId, tenantIds));
+  await db.delete(cameras).where(inArray(cameras.tenantId, tenantIds));
   if (userIds.length) {
     await db.delete(sessions).where(inArray(sessions.userId, userIds));
     await db.delete(users).where(inArray(users.id, userIds));
@@ -136,37 +147,67 @@ test("H-01g: đổi display_name không làm log tenant B lọt sang tenant A", 
   assert.ok(!idsA.includes(rowB), "log tenant B vẫn lọt sau khi đổi tên — cơ chế còn phụ thuộc display_name");
 });
 
-test("H-01g(c): audit() trong request đăng nhập ghi đúng tenant của session", async () => {
-  // alert.ack với id không tồn tại: update 0 hàng (không mutate dữ liệu) nhưng
-  // vẫn gọi audit() trong request có session hợp lệ.
+test("H-01g(c): ack zero-match ⇒ 404 không ghi audit; ack event thật ⇒ 200 + đúng 1 row tenant session", async () => {
+  // Zero-match: route trả 404 trước khi audit() chạy ⇒ không được có row nào.
   const r = await call("/api/alerts", "POST", { ids: [-1] }, cookies.owner_a);
-  assert.equal(r.status, 200, JSON.stringify(r.data));
-  const [row] = await db
+  assert.equal(r.status, 404, JSON.stringify(r.data));
+  assert.equal(r.data.title, "Không tìm thấy cảnh báo");
+  const ghostRows = await db
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(and(eq(auditLog.action, "alert.ack"), eq(auditLog.targetId, "-1"), eq(auditLog.actor, SHARED_NAME)));
+  assert.equal(ghostRows.length, 0, "ack zero-match không được ghi alert.ack row");
+
+  // Ack event thật của tenant A ⇒ 200 + đúng 1 audit row gắn tenant của session.
+  const r2 = await call("/api/alerts", "POST", { ids: [evA] }, cookies.owner_a);
+  assert.equal(r2.status, 200, JSON.stringify(r2.data));
+  const rows = await db
     .select({ tenantId: auditLog.tenantId, actor: auditLog.actor })
     .from(auditLog)
-    .where(and(eq(auditLog.action, "alert.ack"), eq(auditLog.targetId, "-1")))
-    .orderBy(desc(auditLog.id))
-    .limit(1);
-  assert.ok(row, "không có audit row alert.ack");
-  assert.equal(row.actor, SHARED_NAME);
-  assert.equal(row.tenantId, tA, "audit phải gắn tenant của session, không phải tenant khác/null");
+    .where(and(eq(auditLog.action, "alert.ack"), eq(auditLog.targetId, String(evA))))
+    .orderBy(desc(auditLog.id));
+  assert.equal(rows.length, 1, "ack thật phải ghi đúng 1 audit row alert.ack");
+  assert.equal(rows[0].actor, SHARED_NAME);
+  assert.equal(rows[0].tenantId, tA, "audit phải gắn tenant của session, không phải tenant khác/null");
 });
 
-test("H-01g(d): user bị xoá mà JWT còn hạn — audit() không throw, row tenant_id NULL, request vẫn 200", async () => {
+test("H-01g(d): cookie chết — auth.login ghi danh tính user xác thực; request không danh tính ⇒ row NULL", async () => {
   await db.delete(users).where(eq(users.id, ghostId));
-  // Middleware proxy chặn mọi path cần session khi user không còn ⇒ đường duy
-  // nhất audit() vẫn chạy với session stale là public path /api/auth/login.
+  // Cookie ghost đã chết (user bị xoá ⇒ serverSession null). Login owner_b vẫn
+  // 200 và auth.login phải ghi danh tính owner_b lấy từ user row vừa xác thực —
+  // không phải ghost, không phải NULL (H-01h: danh tính không lấy từ cookie cũ).
+  const [ownerB] = await db
+    .select({ displayName: users.displayName, role: users.role, tenantId: users.tenantId })
+    .from(users)
+    .where(eq(users.id, userIds[1]));
   const r = await call("/api/auth/login", "POST", { login: `${prefix}_owner_b`, password }, cookies.ghost);
   assert.equal(r.status, 200, "request vẫn phải thành công khi user của cookie đã bị xoá");
   const [row] = await db
-    .select({ tenantId: auditLog.tenantId, actor: auditLog.actor })
+    .select({ tenantId: auditLog.tenantId, actor: auditLog.actor, actorRole: auditLog.actorRole })
     .from(auditLog)
     .where(and(eq(auditLog.action, "auth.login"), eq(auditLog.targetId, String(userIds[1]))))
     .orderBy(desc(auditLog.id))
     .limit(1);
-  assert.ok(row, "audit() vẫn phải ghi row dù không resolve được tenant");
-  assert.equal(row.tenantId, null, "user không còn ⇒ tenant_id phải NULL (fail-closed)");
-  assert.equal(row.actor, null, "session không resolve được ⇒ actor NULL");
+  assert.ok(row, "audit() vẫn phải ghi row dù cookie trên request không resolve được");
+  assert.equal(row.actor, ownerB.displayName, "actor phải là display_name của owner_b vừa xác thực");
+  assert.equal(row.actorRole, ownerB.role, "actor_role phải là role của owner_b");
+  assert.equal(row.tenantId, ownerB.tenantId, "tenant_id phải là tenant của owner_b");
+  assert.notEqual(row.actor, GHOST_NAME, "không được quy kết cho chủ cookie chết");
+  assert.notEqual(row.actor, null, "login thành công không được ghi actor NULL");
+
+  // Fail-closed thật: request không resolve được danh tính nào ⇒ row NULL.
+  const r2 = await call("/api/auth/login", "POST", { login: `${prefix}_nobody`, password: "sai" }, cookies.ghost);
+  assert.equal(r2.status, 401, JSON.stringify(r2.data));
+  const [rowNull] = await db
+    .select({ tenantId: auditLog.tenantId, actor: auditLog.actor, actorRole: auditLog.actorRole })
+    .from(auditLog)
+    .where(and(eq(auditLog.action, "auth.login_failed"), eq(auditLog.targetId, `${prefix}_nobody`)))
+    .orderBy(desc(auditLog.id))
+    .limit(1);
+  assert.ok(rowNull, "login fail vẫn phải ghi audit row");
+  assert.equal(rowNull.actor, null, "không resolve được danh tính ⇒ actor NULL");
+  assert.equal(rowNull.actorRole, null);
+  assert.equal(rowNull.tenantId, null, "không resolve được danh tính ⇒ tenant_id NULL (fail-closed)");
 });
 
 test("H-01g(e): audit() gọi ngoài request context (worker) không crash", async () => {

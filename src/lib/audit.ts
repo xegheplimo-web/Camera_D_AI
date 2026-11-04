@@ -3,15 +3,26 @@ import { auditLog } from "@/db/schema";
 import { currentSession } from "./auth-server";
 import { tenantIdOf } from "@/lib/knowledge/tenant";
 
-/** Audit identity always comes from the verified session, never from the request body. */
-export async function audit(action: string, meta: { targetType?: string; targetId?: string | number | null; detail?: string; tenantId?: number | null } = {}) {
+export type AuditMeta = {
+  targetType?: string;
+  targetId?: string | number | null;
+  detail?: string;
+  tenantId?: number | null;
+  actor?: string | null;
+  actorRole?: string | null;
+};
+
+/** Audit identity comes from the verified session, never from the request body —
+ *  unless the caller supplies an explicit server-side identity (e.g. login,
+ *  where the session cookie is only set after the audit row is written). */
+export async function audit(action: string, meta: AuditMeta = {}) {
   try {
     const s = await currentSession();
     const tenantId = meta.tenantId !== undefined ? meta.tenantId : s ? await tenantIdOf(s).catch(() => null) : null;
     await db.insert(auditLog).values({
       tenantId,
-      actor: s?.name ?? null,
-      actorRole: s?.role ?? null,
+      actor: meta.actor !== undefined ? meta.actor : s?.name ?? null,
+      actorRole: meta.actorRole !== undefined ? meta.actorRole : s?.role ?? null,
       action,
       targetType: meta.targetType ?? null,
       targetId: meta.targetId != null ? String(meta.targetId) : null,

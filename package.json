@@ -18,6 +18,8 @@
     "test:google": "node --import tsx --test tests/google-auth.unit.test.ts tests/google-start.test.ts",
     "test:rl-http": "node --import tsx --test tests/rl-http.test.ts",
     "test:h01": "node --import tsx --test tests/h01-alerts-tenant.test.ts tests/h01-settings-tenant.test.ts",
+    "test:h01g": "node --import tsx --test tests/h01g-audit-tenant.test.ts",
+    "test:h01h": "node --import tsx --test tests/h01h-audit-login-identity.test.ts",
     "test:t1318": "node --import tsx --test tests/t1318-ux.test.ts",
     "test:t1319": "node --import tsx --test tests/t1319-camera-health.test.ts",
     "test:t1330": "node --import tsx --test --test-concurrency=1 tests/t1330-egress.test.ts tests/t1330-router.test.ts",

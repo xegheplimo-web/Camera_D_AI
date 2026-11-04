@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { normalizeRole, requestMeta, issueSession, sessionCookie } from "@/lib/auth-server";
-import { audit } from "@/lib/audit";
+import { audit, type AuditMeta } from "@/lib/audit";
 import { ensureSeed } from "@/lib/seed";
 import { createFixedWindowLimiter, readJsonBody, remoteAddrFrom, toProblem, type FixedWindowLimiter } from "@/lib/http-guard";
 import { scryptSync, timingSafeEqual } from "crypto";
@@ -28,12 +28,13 @@ export function verifyPassword(password: string, stored: string | null): boolean
   return given.length === calc.length && timingSafeEqual(given, calc);
 }
 
-type LoginUser = Pick<typeof users.$inferSelect, "id" | "displayName" | "role" | "disabled" | "passwordHash">;
+type LoginUser = Pick<typeof users.$inferSelect, "id" | "displayName" | "role" | "disabled" | "passwordHash"> &
+  Pick<Partial<typeof users.$inferSelect>, "tenantId">;
 
 export interface LoginDeps {
   seed: () => Promise<unknown>;
   findUser: (login: string) => Promise<LoginUser | undefined>;
-  audit: (action: string, meta: { targetType?: string; targetId?: string | number | null; detail?: string }) => Promise<unknown>;
+  audit: (action: string, meta: AuditMeta) => Promise<unknown>;
   issueSession: (user: LoginUser, meta: { device: string; ua: string; ip: string }) => Promise<string>;
   limiter: FixedWindowLimiter;
 }
@@ -65,11 +66,11 @@ export async function handleLogin(req: Request, deps: LoginDeps): Promise<Respon
   }
   const user = await deps.findUser(login);
   if (!user || user.disabled || !verifyPassword(password, user.passwordHash)) {
-    await deps.audit("auth.login_failed", { targetType: "user", targetId: login, detail: meta.ip });
+    await deps.audit("auth.login_failed", { targetType: "user", targetId: login, detail: meta.ip, actor: null, actorRole: null, tenantId: null });
     return json(401, { title: "Sai tên đăng nhập hoặc mật khẩu" });
   }
   const token = await deps.issueSession(user, meta);
-  await deps.audit("auth.login", { targetType: "user", targetId: user.id, detail: meta.ip });
+  await deps.audit("auth.login", { targetType: "user", targetId: user.id, detail: meta.ip, actor: user.displayName, actorRole: normalizeRole(user.role), tenantId: user.tenantId ?? null });
   const res = Response.json({ ok: true, user: { id: user.id, name: user.displayName, role: normalizeRole(user.role) } });
   res.headers.append("Set-Cookie", sessionCookie(token));
   return res;
