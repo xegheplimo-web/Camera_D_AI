@@ -1,9 +1,10 @@
 import { db } from "@/db";
 import { events, cameras } from "@/db/schema";
-import { and, asc, gte, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 import { startOfDayVN, addDays, fmtDateTime } from "@/lib/time";
 import { audit } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
+import { tenantIdOf } from "@/lib/knowledge/tenant";
 import { getSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -21,8 +22,9 @@ export async function GET(req: Request) {
   const days = Math.min(90, Math.max(1, Number(new URL(req.url).searchParams.get("days") ?? 7)));
   const end = addDays(startOfDayVN(), 1);
   const start = addDays(end, -days);
-  const rows = await db.select().from(events).where(and(gte(events.happenedAt, start), lt(events.happenedAt, end), ...(settings.demoMode ? [] : [sql`${events.source} <> 'demo'`]))).orderBy(asc(events.happenedAt));
-  const cams = await db.select().from(cameras);
+  const tenantId = await tenantIdOf(auth.session);
+  const rows = await db.select().from(events).where(and(eq(events.tenantId, tenantId), gte(events.happenedAt, start), lt(events.happenedAt, end), ...(settings.demoMode ? [] : [sql`${events.source} <> 'demo'`]))).orderBy(asc(events.happenedAt));
+  const cams = await db.select().from(cameras).where(eq(cameras.tenantId, tenantId));
   const header = ["id", "thoi_gian", "camera", "loai", "doi_tuong", "mo_ta", "do_tin_cay", "uu_tien", "the", "nguon", "asset_id", "client_chua_duyet"];
   const lines = [header.join(",")];
   for (const r of rows) {

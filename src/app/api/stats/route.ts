@@ -5,6 +5,7 @@ import { ensureSeed } from "@/lib/seed";
 import { getSettings } from "@/lib/settings";
 import { startOfDayVN, addDays, TZ, TZSQL } from "@/lib/time";
 import { authorize } from "@/lib/auth-server";
+import { tenantIdOf } from "@/lib/knowledge/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,10 @@ export async function GET(req: Request) {
   await ensureSeed();
   const days = Math.min(30, Math.max(1, Number(new URL(req.url).searchParams.get("days") ?? 7)));
   const settings = await getSettings();
+  const tenantId = await tenantIdOf(auth.session);
   const end = addDays(startOfDayVN(), 1);
   const start = addDays(end, -days);
-  const where = and(gte(events.happenedAt, start), lt(events.happenedAt, end), eq(events.clientReported, false), ...(settings.demoMode ? [] : [sql`${events.source} <> 'demo'`]));
+  const where = and(eq(events.tenantId, tenantId), gte(events.happenedAt, start), lt(events.happenedAt, end), eq(events.clientReported, false), ...(settings.demoMode ? [] : [sql`${events.source} <> 'demo'`]));
 
   const [totals] = await db
     .select({
@@ -55,7 +57,7 @@ export async function GET(req: Request) {
     .from(events)
     .where(where)
     .groupBy(events.cameraId);
-  const cams = await db.select().from(cameras);
+  const cams = await db.select().from(cameras).where(eq(cameras.tenantId, tenantId));
 
   const byType = await db
     .select({ type: events.type, c: sql<number>`count(*)::int` })

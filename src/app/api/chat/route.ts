@@ -6,6 +6,7 @@ import { answerQuestion } from "@/lib/qa";
 import { ensureSeed } from "@/lib/seed";
 import { audit } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
+import { tenantIdOf } from "@/lib/knowledge/tenant";
 import { getSettings } from "@/lib/settings";
 import { routeQuestion } from "@/lib/ai/routing";
 import { dispatchJobs, enqueueJob, jobView } from "@/lib/ai/jobs";
@@ -34,6 +35,7 @@ export async function POST(req: Request) {
     const key = `chat:${requestKey(req, b)}`;
     const inputMode = b.inputMode === "voice" ? "voice" : "text";
     const session = auth.session;
+    const tenantId = await tenantIdOf(session);
     const t0 = Date.now();
     const route = routeQuestion(question);
     const previous = await db.select().from(messages).where(and(eq(messages.userId, session.sub), eq(messages.requestKey, key)));
@@ -60,8 +62,8 @@ export async function POST(req: Request) {
       await tx.execute(sql`select pg_advisory_xact_lock(34215, ${session.sub})`);
       const [prior] = await tx.select({ text: messages.text }).from(messages).where(and(eq(messages.userId, session.sub), eq(messages.requestKey, key), eq(messages.role, "user"))).limit(1);
       if (prior && prior.text !== question) throw new AiError("IDEMPOTENCY_CONFLICT", "Mã yêu cầu đã được dùng cho câu hỏi khác.", 409);
-      await tx.insert(messages).values({ role: "user", text: question, userId: session.sub, device: session.device, inputMode, requestKey: key }).onConflictDoNothing();
-      await tx.insert(messages).values({ role: "assistant", text: answer.short, answer, userId: session.sub, device: session.device, inputMode, requestKey: key }).onConflictDoNothing();
+      await tx.insert(messages).values({ tenantId, role: "user", text: question, userId: session.sub, device: session.device, inputMode, requestKey: key }).onConflictDoNothing();
+      await tx.insert(messages).values({ tenantId, role: "assistant", text: answer.short, answer, userId: session.sub, device: session.device, inputMode, requestKey: key }).onConflictDoNothing();
       return tx.select().from(messages).where(and(eq(messages.userId, session.sub), eq(messages.requestKey, key)));
     });
     await audit("chat.fast", { targetType: "message", targetId: saved.find((m) => m.role === "user")?.id, detail: "Gateway → Memory/SQL; Hermes bypassed" });

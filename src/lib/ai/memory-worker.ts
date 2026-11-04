@@ -8,13 +8,16 @@ import type { SessionPayload } from "@/lib/token";
 
 type Scope = { where: SQL; start: Date; end: Date; label: string; camera: string };
 export async function reportScope(input: JobInput): Promise<Scope> {
+  // Tenant là biên cứng: input thiếu tenantId thì fail closed thay vì đọc toàn cục.
+  if (input.tenantId == null) throw new AiError("TENANT_REQUIRED", "Tác vụ thiếu phạm vi tenant; từ chối đọc dữ liệu toàn cục.", 400);
+  const tenantId = input.tenantId;
   const range = parseRange(input.question ?? "", new Date(input.asOf));
   range.end = new Date(Math.min(range.end.getTime(), new Date(input.asOf).getTime()));
-  const allCams = await db.select().from(cameras);
+  const allCams = await db.select().from(cameras).where(eq(cameras.tenantId, tenantId));
   const m = /(?:camera|cam)\s*0?(\d+)/i.exec(input.question ?? "");
   const camera = m ? allCams.find((c) => c.code === `CAM-${m[1].padStart(2, "0")}`) : null;
   if (m && !camera) throw new AiError("CAMERA_NOT_FOUND", "Không tìm thấy camera trong yêu cầu.", 404);
-  const filters = [gte(events.happenedAt, range.start), lt(events.happenedAt, range.end), eq(events.clientReported, false)];
+  const filters = [eq(events.tenantId, tenantId), gte(events.happenedAt, range.start), lt(events.happenedAt, range.end), eq(events.clientReported, false)];
   if (!input.demoMode) filters.push(sql`${events.source} <> 'demo'`);
   if (camera) filters.push(eq(events.cameraId, camera.id));
   return { where: and(...filters)!, start: range.start, end: range.end, label: range.label, camera: camera ? `${camera.name} – ${camera.location}` : "Tất cả camera" };

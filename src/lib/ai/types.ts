@@ -14,6 +14,8 @@ export type JobInput = {
   note?: string;
   taskType?: string;
   roi?: Roi | null;
+  /** Tenant của job — enqueueJob ghi vào lúc admission; worker từ chối đọc khi thiếu. */
+  tenantId?: number;
   // Frozen at admission; retries never silently switch data scope or consent.
   demoMode: boolean;
   allowRemote: boolean;
