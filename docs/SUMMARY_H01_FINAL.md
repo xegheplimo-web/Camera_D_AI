@@ -48,7 +48,7 @@ Thứ tự dưới đây **khác** đề xuất của GPT: GPT đặt CI lên b�
 
 | Bước | Việc | Mức | Vì sao ở đây |
 |---|---|---|---|
-| **P0-1** | Vá `/api/alerts`: thêm predicate tenant vào **cả 5 đường** (GET, ack-all, ack-by-id, rule toggle/delete, **rule create — hiện ghi vào `default(1)`**) | P0 | Một file, vài dòng, rủi ro thấp, chặn được cross-tenant read + mass write ngay |
+| **P0-1** ✅ **DONE** | Vá `/api/alerts`: thêm predicate tenant vào **cả 5 đường** (GET, ack-all, ack-by-id, rule toggle/delete, **rule create — hiện ghi vào `default(1)`**) | P0 | Đã vá + có CI gate: `tests/h01-alerts-tenant.test.ts` RED 6/6 trên code cũ → GREEN 6/6 sau vá; `npm run test:h01` chạy trong job `test-e2e` (`SKIP_BUILD=1`) |
 | **P0-1b** | Chặn `app_settings` cross-tenant: quyết định platform-global hay tenant-local rồi giới hạn PATCH đúng thẩm quyền | P0 | Owner tenant A hiện đổi được cấu hình dùng chung → thay đổi hành vi xử lý dữ liệu của tenant B *(GPT R3 bổ sung)* |
 | **P0-2** | Đưa 5 suite H-01 vào CI qua `npm run test:h01`; sửa harness `BUILD_ID` (build một lần ở workflow, test đọc artifact vừa build) | P0 | Không có regression gate thì mọi bản vá sau đều không có bảo vệ |
 | **P0-3** | Phân loại 12 route còn lại (tenant-owned / user-owned / global / stateless); miễn trừ 3 route đã đúng | P0 | Tránh sửa mù; `assets/[id]`, `cameras/[id]/stream`, `jobs/[id]` đã kiểm soát qua `authorizeResource`/`getJob` |
@@ -98,7 +98,8 @@ docker exec camdai-pg psql -U postgres -d app_db -t -c \
 | H-01b / c / d / f / g | Merged — **chưa đủ CI regression evidence** |
 | H-01e | Implemented — **verification incomplete** |
 | H-01a | **Not implemented** |
-| Tenant route inventory | **Incomplete** — 2 bề mặt leak xác nhận (`/api/alerts`: 5 đường; `app_settings`: config control), 12 route chưa phân loại |
+| P0-1 `/api/alerts` (5 đường) | **DONE** — cross-tenant READ/mass-WRITE/IDOR/create-default-tenant đã bịt; suite RED→GREEN 6/6 |
+| Tenant route inventory | **Incomplete** — 1 bề mặt leak còn lại (`app_settings`: config control); **17** route chưa phân loại (đo lại tại HEAD `bad862d`, không phải 12) |
 | H-02a backup/restore | Drill PASS quy mô mẫu (141 KB) — chưa chứng minh quy mô production |
 | **H-01 overall** | **STOP / NOT ACCEPTED** |
 
