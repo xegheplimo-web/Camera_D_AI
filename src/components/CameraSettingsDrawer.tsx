@@ -44,6 +44,24 @@ const PROFILES: [string, string][] = [
 ];
 
 type FlagKey = "live" | "playback" | "snapshot" | "record" | "ask" | "pricing";
+const FEATURE_LIST: { key: FlagKey; label: string }[] = [
+  { key: "live", label: "Xem trực tiếp" },
+  { key: "playback", label: "Xem lại" },
+  { key: "snapshot", label: "Chụp ảnh" },
+  { key: "record", label: "Lưu video" },
+  { key: "ask", label: "Hỏi AI" },
+  { key: "pricing", label: "Tính tiền" },
+];
+
+/** Giá trị hiển thị của từng tính năng; tính năng khả dụng mặc định bật trừ khi đã tắt rõ ràng. */
+const flagsOf = (f: Record<string, unknown> | undefined): Record<FlagKey, boolean> => ({
+  live: f?.live !== false,
+  playback: f?.playback === true,
+  snapshot: f?.snapshot !== false,
+  record: f?.record === true,
+  ask: f?.ask !== false,
+  pricing: f?.pricing === true,
+});
 
 const UPLOAD_MAX = 25 * 1024 * 1024;
 const UPLOAD_MIMES = new Set(["image/jpeg", "image/png", "image/webp", "video/webm", "video/mp4"]);
@@ -210,7 +228,7 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
   };
 
   // "Ghi hình" lái cột record_enabled (control-plane thật qua recorder); các cờ còn lại vẫn là tuỳ chọn trong features.
-  const setFlag = (key: CameraFeatureId, v: boolean) =>
+  const setFlag = (key: FlagKey | CameraFeatureId, v: boolean) =>
     void save(key === "record" ? { recordEnabled: v } : { features: { ...s!.features, [key]: v } });
 
   const name = nameD ?? cam.name;
@@ -550,6 +568,7 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
     ...(s?.featureFlags ?? normalizeFeatures(s?.features)),
     record: s?.recordEnabled === true,
   };
+  const flags = flagsOf(s?.features);
   const recReady = s?.capabilities?.record === true;
   const recReason = s?.capabilities?.reason?.record;
   const hasAudio = recReady && s?.capabilities?.audio === true;
@@ -626,6 +645,29 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
               {PROFILES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </label>
+          <div className="mt-2 divide-y divide-white/5">
+            {FEATURE_LIST.map((f) => {
+              const ready = s ? s.capabilities?.[f.key] === true : false;
+              const reason = s?.capabilities?.reason?.[f.key];
+              return (
+                <div key={f.key} data-feature={f.key} className="flex items-center justify-between gap-2 py-2 text-sm">
+                  <span className="min-w-0">
+                    {f.label}
+                    {!ready && reason ? <span className="block truncate text-[11px] font-normal text-slate-500">{reason}</span> : null}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {!ready && s && <Badge color="slate">Chưa khả dụng</Badge>}
+                    <Switch
+                      label={f.label}
+                      checked={ready && (f.key === "record" ? s?.recordEnabled === true : flags[f.key])}
+                      disabled={!ready || !s || saving}
+                      onChange={(v) => setFlag(f.key, v)}
+                    />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </Section>
 
         {/* 3. Tính năng camera — luôn hiển thị: đây là nơi bật tính năng cho riêng camera này.

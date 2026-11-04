@@ -6,7 +6,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync, createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import sharp from "sharp";
-import { chromium, type Browser, type BrowserContext, type Page, type Route } from "@playwright/test";
+import { chromium, expect, type Browser, type BrowserContext, type Page, type Route } from "@playwright/test";
 import { ensureDefaultTenant } from "./helpers/tenant";
 import { db, pool } from "../src/db";
 import { users, cameras, assets, events, sessions, auditLog, knowledgeItems } from "../src/db/schema";
@@ -53,6 +53,10 @@ async function openDrawer(camId: number) {
     assert.equal(res.status(), 200, "GET settings phải thành công khi mở drawer");
   }
   await dlg().waitFor({ state: "visible" });
+  // Response settings về trước khi React commit (load() đợi Promise.all 4 request):
+  // select "Hồ sơ" chỉ enable khi `s` đã set — đây là dấu hiệu render đã xong,
+  // không thì assert ngay sau openDrawer đọc được trạng thái "Đang tải".
+  await expect(dlg().locator('select[aria-label="Hồ sơ"]')).toBeEnabled();
 }
 
 /** Đóng drawer nếu đang mở — unmount ⇒ lần mở sau chạy load() và GET settings mới. */
@@ -341,6 +345,8 @@ test("PATCH revision cũ → UI hiện 'Cài đặt đã thay đổi ở nơi kh
 
 test("gắn 2 ảnh cùng mục, sửa note 1 ảnh, ảnh kia giữ nguyên", async () => {
   // Mục "Ảnh & ghi chú" chỉ render khi camera bật tính năng hàng hoá (P1).
+  // Ca trước để drawer mở với settings thật — đóng lại để openDrawer nạp qua stub.
+  await closeDrawer();
   const unroute = await stubCapabilities(
     camA,
     { live: true, playback: true, record: true, snapshot: true, ask: true, pricing: false },
