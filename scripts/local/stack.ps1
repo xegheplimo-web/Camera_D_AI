@@ -163,7 +163,26 @@ switch ($Action) {
         }
 
         # --- publisher ---
+        # mediaMTX runs authMethod=internal with anonymous publish denied (M0), so a
+        # publisher URL without credentials is rejected with 401 and the "cam" path
+        # stays dead -- which then makes the M0 gate unverifiable. The publish
+        # credential comes from the out-of-repo secret file, never from this script.
         $rtsp = "rtsp://${ip}:8554/cam"
+        $credFile = Join-Path $env:USERPROFILE ".camdai\mediamtx.env"
+        if (Test-Path $credFile) {
+            Get-Content $credFile | ForEach-Object {
+                if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
+                    Set-Item -Path ("env:" + $matches[1]) -Value $matches[2].Trim()
+                }
+            }
+        }
+        if ($env:MEDIAMTX_PUBLISH_USER -and $env:MEDIAMTX_PUBLISH_PASS) {
+            $pu = [Uri]::EscapeDataString($env:MEDIAMTX_PUBLISH_USER)
+            $pp = [Uri]::EscapeDataString($env:MEDIAMTX_PUBLISH_PASS)
+            $rtsp = "rtsp://${pu}:${pp}@${ip}:8554/cam"
+        } else {
+            Warn "MEDIAMTX_PUBLISH_USER/PASS not found - publisher will be rejected (401)"
+        }
         if (Test-Ours "publisher" "rtsp-publisher.ps1") {
             Ok "publisher already running (pid $(Read-PidFile 'publisher')), skip"
         } else {

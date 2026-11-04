@@ -39,6 +39,7 @@ playbackAddress: 127.0.0.1:9996
 # control-plane bật record tường minh) mới ghi — tránh path lạ tự sinh file rác.
 pathDefaults:
   record: no
+  maxReaders: 16
   recordPath: F:/Camera-D-AI/runtime/recordings/%path/%Y-%m-%d_%H-%M-%S-%f
   recordFormat: fmp4
   recordSegmentDuration: 5m
@@ -52,6 +53,3 @@ paths:
     # Trần số reader đồng thời. 0 (mặc định của MediaMTX) = không giới hạn:
     # vài chục tab MJPEG là đủ đẩy CPU/upload lên trần và làm nghẽn mọi camera.
     maxReaders: 10
-  # Mọi path khác (camera thật, path phát sinh) cũng có trần riêng.
-  all_others:
-    maxReaders: 16
