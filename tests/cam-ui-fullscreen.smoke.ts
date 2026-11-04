@@ -12,7 +12,8 @@ const base = process.env.DAI_TEST_BASE_URL ?? "http://localhost:3000";
 const results: string[] = [];
 let failed = 0;
 function check(name: string, ok: boolean, extra = "") {
-  results.push(`${ok ? "PASS" : "FAIL"}: ${name}${extra ? ` — ${extra}` : ""}`);
+  const suffix = extra ? ` — ${extra}` : "";
+  results.push(`${ok ? "PASS" : "FAIL"}: ${name}${suffix}`);
   if (!ok) failed++;
 }
 
