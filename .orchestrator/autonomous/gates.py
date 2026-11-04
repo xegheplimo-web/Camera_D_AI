@@ -83,6 +83,33 @@ def _resolve(exe: str) -> str:
     return found or exe
 
 
+_ENV_CACHE: dict | None = None
+
+
+def _env() -> dict:
+    """Process env plus the repo `.env`, so a gate never depends on whether the
+    caller happened to export DATABASE_URL. A gate that fails only because of
+    ambient environment is a lying gate; a missing value still surfaces as a real
+    test failure inside the command."""
+    global _ENV_CACHE
+    if _ENV_CACHE is not None:
+        return _ENV_CACHE
+    env = dict(os.environ)
+    dotenv = REPO / ".env"
+    if dotenv.exists():
+        for raw in dotenv.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            if k and k not in env:
+                env[k] = v
+    _ENV_CACHE = env
+    return env
+
+
 def sh(cmd: list[str], timeout: int = 40) -> tuple[int, str]:
     """Run a command, never raise. Returns (exit_code, combined output).
 
@@ -92,7 +119,7 @@ def sh(cmd: list[str], timeout: int = 40) -> tuple[int, str]:
     cmd = [_resolve(cmd[0]), *cmd[1:]]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
-                           cwd=str(REPO))
+                           cwd=str(REPO), env=_env())
         return p.returncode, ((p.stdout or "") + (p.stderr or "")).strip()
     except FileNotFoundError:
         return 127, f"command not found: {cmd[0]}"
@@ -705,7 +732,19 @@ def gate_p1() -> None:
         raise Fail("camera_settings.features is missing — flags are not per camera")
 
     _run_proof("test:p1", "p1-per-camera-features.test.ts", ("features", "asset", "camera"))
+
+    # P1 rewrote the drawer. The registry test proves the new behaviour but says
+    # nothing about what it replaced: an earlier version of this milestone deleted
+    # the six AI capability rows and every gate stayed green. The drawer's own UX
+    # suite is part of the contract, so a milestone that breaks it cannot pass.
+    script = _scripts().get("test:t1336")
+    if not script:
+        raise Fail("package.json has no test:t1336 — drawer UX contract is unwired")
+    code, out = sh(["npm", "run", "test:t1336", "--silent"], timeout=600)
+    if code != 0:
+        raise Fail(f"test:t1336 failed (exit {code}): {out[-600:]}")
     log("PASS P1: per-camera feature registry drives the drawer, proven by test:p1")
+    log("           drawer UX contract still green (test:t1336)")
 
 
 def gate_p2() -> None:
