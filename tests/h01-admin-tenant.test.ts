@@ -2,7 +2,7 @@ import "dotenv/config";
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freePort, loginUser, makeCall, wait, type Call } from "./helpers/http";
-import { ensureDefaultTenant } from "./helpers/tenant";
+import { ensureDefaultTenant, assertDestructiveTestDb } from "./helpers/tenant";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -50,6 +50,7 @@ async function login(who: string) {
 }
 
 before(async () => {
+  assertDestructiveTestDb();
   // Fixture cần production build cho `next start` — build một lần nếu chưa có.
   if (!existsSync(".next/BUILD_ID")) {
     const r = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build"], { stdio: "inherit" });
