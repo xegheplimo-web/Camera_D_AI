@@ -20,7 +20,8 @@ Bằng chứng mới do Hermes tự đo, không có trong brief gửi GPT:
 | N2 | `POST /api/alerts {all:true}` ack **toàn bộ** event chưa ack của mọi tenant, và ghi `ackBy = tên user tenant A` vào hàng của tenant B | `src/app/api/alerts/route.ts:55` | **P0 — cross-tenant WRITE + data contamination** |
 | N3 | `POST /api/alerts {ids:[...]}` ack theo ID không kiểm tra tenant → IDOR | `src/app/api/alerts/route.ts:60` | **P0 — IDOR** |
 | N4 | `PUT /api/alerts` toggle/delete `alertRules` theo ID không kiểm tra tenant | `src/app/api/alerts/route.ts:89,91,96` | **P0 — cross-tenant WRITE** |
-| N5 | `app_settings` là bảng **toàn cục** (`key` là PK, không có `tenant_id`); `getSettings()` đọc toàn bộ bảng. Admin tenant A đổi setting → ảnh hưởng mọi tenant | `src/db/schema.ts:63–67`, `src/lib/settings.ts:19–26` | **P1 — cross-tenant config impact** |
+| N4b | `PUT /api/alerts {action:"create"}` **không ghi `tenantId`** → rơi về default `1`; owner tenant B tạo rule lại ghi vào tenant 1 | `src/app/api/alerts/route.ts:73–84`; `src/db/schema.ts:257–259` (`default(1)`) | **P0 — cross-tenant WRITE** *(GPT R3 bắt; Hermes xác nhận)* |
+| N5 | `app_settings` là bảng **toàn cục** (`key` là PK, không có `tenant_id`); `getSettings()` đọc toàn bộ bảng; `PATCH /api/settings` chỉ cần `authorize("manage")` → owner tenant A đổi setting ảnh hưởng mọi tenant | `src/db/schema.ts:63–67`, `src/lib/settings.ts:19–29`, `src/app/api/settings/route.ts:17–36` | **P0 — cross-tenant CONFIG CONTROL** *(nâng từ P1 theo GPT R3; Hermes xác nhận)* |
 | N6 | `audit_log` có cột `tenant_id` nhưng **2858/2858 hàng đều NULL** (100%, không phải "legacy") | `psql: select count(*) ... where tenant_id is null` | **P1 — admin audit panel rỗng ở mọi tenant** |
 | N7 | Không có `app_rw`, không có RLS, **và app runtime kết nối bằng superuser** (`DATABASE_URL=postgresql://postgres:***@127.0.0.1:5432/app_db`) | `.env:2`; `pg_roles`; `pg_policies` | **P0 — RLS sẽ bị bypass nếu chỉ bật RLS** |
 
@@ -80,6 +81,18 @@ npm run build
 node --import tsx --test tests/h01-alerts-tenant.test.ts
 ```
 
+### P0-1b — Chặn `app_settings` cross-tenant (blocker thứ hai, GPT R3 bổ sung)
+
+`PATCH /api/settings` hiện cho phép `owner`/`operator` của bất kỳ tenant nào đổi bảng cấu hình **toàn cục** (`app_settings` không có `tenant_id`; `getSettings()` đọc cả bảng). Đây là **cross-tenant configuration control**, không phải vấn đề tài liệu: tenant A đổi `remoteProcessingAllowed`/`remotePlayback`/`retentionDays` → thay đổi hành vi xử lý dữ liệu của tenant B.
+
+Phải quyết định rõ quyền sở hữu trước khi sửa:
+- Nếu `app_settings` là **platform-global**: chỉ platform administrator được PATCH; owner tenant bị 403.
+- Nếu là **tenant-local**: thêm `tenant_id` vào bảng + mọi đọc/ghi phải scoped.
+
+Không được đồng nhất "owner của một tenant" với "administrator của toàn nền tảng".
+
+RED-first: `tests/h01-settings-tenant.test.ts` — owner tenant B PATCH → 403 (global) hoặc chỉ ảnh hưởng hàng của tenant B (local); `getSettings(tenant B)` không trả giá trị do tenant A đặt.
+
 ### P0-2 — Đưa 5 suite H-01 vào CI + `test:h01` (theo GPT bước 01)
 
 Bao gồm sửa lỗi harness `BUILD_ID` (`h01d-read-paths.test.ts:98–102` chỉ build khi artifact thiếu → có thể chạy trên code cũ). Chuẩn hóa: build một lần ở workflow, test chỉ đọc artifact vừa build.
@@ -98,7 +111,7 @@ Theo đúng thứ tự 1-2-3 ở trên. RED-first: `tests/h01a-rls.test.ts`.
 
 ### P1-5 — Audit attribution khi login + H-01e dedicated test
 
-`auth.login` ghi audit trước khi cookie mới được set → `tenant_id` lấy từ cookie cũ (NULL hoặc tenant A). 2858/2858 hàng NULL hiện tại là bằng chứng định lượng. RED-first: `tests/h01g-login-attribution.test.ts`.
+`auth.login` ghi audit trước khi cookie mới được set → `tenant_id` lấy từ cookie cũ (NULL hoặc tenant A). 2858/2858 hàng NULL hiện tại là bằng chứng định lượng. Vị trí chính xác tại HEAD `3a4389e`: audit ở `auth/login/route.ts:72`, Set-Cookie ở `:74` *(hiệu chỉnh sau phản biện GPT R3 — bản trước ghi sai 85–87)*. RED-first: `tests/h01g-login-attribution.test.ts`.
 
 ---
 

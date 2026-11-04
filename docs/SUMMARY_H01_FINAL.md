@@ -30,7 +30,7 @@ Code H-01 đã merge nhưng **tenant isolation chưa được chứng minh**; đ
 | # | Vấn đề | Bằng chứng |
 |---|---|---|
 | R8 | `audit_log` có `tenant_id` nhưng **2858/2858 hàng NULL** (100%) | `select count(*) filter (where tenant_id is null)` |
-| R9 | `auth.login` ghi audit trước khi set cookie mới → tenant lấy từ cookie cũ | `auth/login/route.ts:85–87` + `lib/audit.ts:6–17` |
+| R9 | `auth.login` ghi audit trước khi set cookie mới → tenant lấy từ cookie cũ | `auth/login/route.ts:72` (audit) trước `:74` (Set-Cookie) + `lib/audit.ts:6–17` — *line ref hiệu chỉnh 2026-11-04 sau phản biện GPT R3* |
 | R10 | `app_settings` là bảng **toàn cục** (không có `tenant_id`) | `src/db/schema.ts:63–67`; admin A đổi setting ảnh hưởng mọi tenant |
 | R11 | `audit()` nuốt mọi exception → audit có thể mất hoàn toàn mà action vẫn thành công | `src/lib/audit.ts:20–24` |
 
@@ -48,7 +48,8 @@ Thứ tự dưới đây **khác** đề xuất của GPT: GPT đặt CI lên b�
 
 | Bước | Việc | Mức | Vì sao ở đây |
 |---|---|---|---|
-| **P0-1** | Vá `/api/alerts`: thêm predicate tenant vào cả 4 đường (GET, ack-all, ack-by-id, rule toggle/delete) | P0 | Một file, vài dòng, rủi ro thấp, chặn được cross-tenant read + mass write ngay |
+| **P0-1** | Vá `/api/alerts`: thêm predicate tenant vào **cả 5 đường** (GET, ack-all, ack-by-id, rule toggle/delete, **rule create — hiện ghi vào `default(1)`**) | P0 | Một file, vài dòng, rủi ro thấp, chặn được cross-tenant read + mass write ngay |
+| **P0-1b** | Chặn `app_settings` cross-tenant: quyết định platform-global hay tenant-local rồi giới hạn PATCH đúng thẩm quyền | P0 | Owner tenant A hiện đổi được cấu hình dùng chung → thay đổi hành vi xử lý dữ liệu của tenant B *(GPT R3 bổ sung)* |
 | **P0-2** | Đưa 5 suite H-01 vào CI qua `npm run test:h01`; sửa harness `BUILD_ID` (build một lần ở workflow, test đọc artifact vừa build) | P0 | Không có regression gate thì mọi bản vá sau đều không có bảo vệ |
 | **P0-3** | Phân loại 12 route còn lại (tenant-owned / user-owned / global / stateless); miễn trừ 3 route đã đúng | P0 | Tránh sửa mù; `assets/[id]`, `cameras/[id]/stream`, `jobs/[id]` đã kiểm soát qua `authorizeResource`/`getJob` |
 | **P0-4** | H-01a đúng thứ tự: (1) tạo `app_rw` không superuser/BYPASSRLS → (2) đổi `DATABASE_URL` của app → (3) bật RLS + `SET LOCAL` trong transaction | P0 | Đảo (2) và (3) tạo cảm giác an toàn giả |
@@ -97,7 +98,7 @@ docker exec camdai-pg psql -U postgres -d app_db -t -c \
 | H-01b / c / d / f / g | Merged — **chưa đủ CI regression evidence** |
 | H-01e | Implemented — **verification incomplete** |
 | H-01a | **Not implemented** |
-| Tenant route inventory | **Incomplete** — 2 leak xác nhận, 12 chưa phân loại |
+| Tenant route inventory | **Incomplete** — 2 bề mặt leak xác nhận (`/api/alerts`: 5 đường; `app_settings`: config control), 12 route chưa phân loại |
 | H-02a backup/restore | Drill PASS quy mô mẫu (141 KB) — chưa chứng minh quy mô production |
 | **H-01 overall** | **STOP / NOT ACCEPTED** |
 

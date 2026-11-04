@@ -51,3 +51,14 @@
 - Điều kiện duy nhất để chuyển ACCEPTED: đúng SHA + runtime không bypass RLS + ma trận tenant A/B trên mọi tenant-owned path + regression tests thực thi trong CI + RED/GREEN evidence + acceptance doc khớp kết quả.
 - Phương án loại: đánh dấu DONE từ trạng thái "PR đã merge" — đúng lỗi mà H-01 đang phải sửa.
 - Bằng chứng chi tiết: `docs/H01_REBUTTAL_AND_PRIORITY_2026-11-04.md`; phản biện gốc: `docs/discussions/GPT-REVIEW-H01-2026-11-04.md`.
+
+## D-009 — Hiệu chỉnh sau vòng phản biện GPT R3; `app_settings` thành blocker P0 thứ hai (2026-11-04)
+- Bối cảnh: Hermes gửi brief đo được (HEAD `3a4389e`) sang thread GPT; GPT trả lời R3 (42.485 ký tự transcript) và **chấp nhận thứ tự rủi ro của Hermes** ("Hermes đưa /api/alerts lên trước CI" → KEEP).
+- GPT bắt được 3 lỗi thật trong báo cáo Hermes, Hermes xác nhận bằng đo lại:
+  1. `auth/login/route.ts` audit ở dòng **72**, Set-Cookie ở **74** — không phải 85–87. Đã sửa `SUMMARY_H01_FINAL.md` + `H01_REBUTTAL_AND_PRIORITY_2026-11-04.md`.
+  2. `PUT /api/alerts {action:"create"}` **không ghi `tenantId`** → rơi về `default(1)`; owner tenant B tạo rule ghi vào tenant 1 (`alerts/route.ts:73–84`, `schema.ts:257–259`). Đã thêm **N4b**.
+  3. `app_settings` là **cross-tenant configuration control**, không phải "vấn đề tài liệu": `PATCH /api/settings` chỉ cần `authorize("manage")`, bảng không có `tenant_id`. Đã **nâng N5 từ P1 lên P0** và thêm bước **P0-1b**.
+- Hermes giữ nguyên 2 điểm GPT còn yếu: (a) không hạ H-01a khỏi P0 — runtime dùng `postgres` superuser nên RLS bật mà không đổi credential là vô nghĩa; (b) không chấp nhận "CI xanh chứng minh runtime" — CI **có** chạy unit/integration, kết luận đúng là CI **không chứng minh tenant isolation** vì không chạy 5 suite H-01.
+- Thứ tự thi hành chốt lại: **01 `/api/alerts` → 02 `app_settings` → 03 CI regression → 04 route coverage → 05 `app_rw`+RLS → 06 audit/memory-worker → 07 final gate đúng SHA**.
+- Định nghĩa DONE siết lại: RED/GREEN test + đối soát DB + log thực thi + exit code + commit SHA + CI job tương ứng. Thiếu một thành phần → **IMPLEMENTED / NOT VERIFIED**, không phải DONE.
+- Bằng chứng đo lại trong phiên: `grep -c h01 ci.yml` = 0; `pg_roles app_rw` = 0; `pg_policies` = 0; `audit_log` NULL 2858/2858; `.env` user = `postgres`; chạy thật `h01-qa-tenant` 6/6 pass (656ms) và `h01f-scope-tenant` 12/12 pass (654ms) — **test xanh nhưng không phủ `GET /api/alerts`/ack-all/IDOR** → xanh không đồng nghĩa đã bịt leak.
