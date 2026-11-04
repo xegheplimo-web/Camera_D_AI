@@ -766,6 +766,48 @@ def gate_p3() -> None:
 
 
 # ---------------------------------------------------------------------------
+def gate_p4() -> None:
+    """P4: 'Ghi vào máy' — ghi về máy người dùng, KHÔNG đụng recorder máy chủ."""
+    mod = REPO / "src" / "lib" / "camera" / "local-recorder.ts"
+    if not mod.exists():
+        raise Fail("src/lib/camera/local-recorder.ts missing — no testable local recorder")
+    src = mod.read_text(encoding="utf-8", errors="replace")
+    for sym in ("pickMimeType", "recordingFileName", "createLocalRecorder", "MAX_LOCAL_CLIP_SECONDS"):
+        if sym not in src:
+            raise Fail(f"local-recorder.ts does not export {sym}")
+
+    # Ghi vào máy = trình duyệt tải file về. Nếu module tự ghi đĩa thì đó không
+    # còn là "về máy người dùng" mà là ghi lên máy chủ bằng đường khác.
+    for bad in ("node:fs", "require(\"fs\")", "from \"fs\"", "showDirectoryPicker", "runtime/recordings"):
+        if bad in src:
+            raise Fail(f"local-recorder.ts must not use {bad} — recording goes to the user's machine")
+
+    comp = REPO / "src" / "components" / "LocalRecordButton.tsx"
+    if not comp.exists():
+        raise Fail("src/components/LocalRecordButton.tsx missing — no record button")
+    c = comp.read_text(encoding="utf-8", errors="replace")
+    if "captureStream" not in c:
+        raise Fail("record button does not use captureStream — MediaRecorder cannot read an <img> MJPEG")
+    if "download" not in c:
+        raise Fail("record button does not hand the file to the browser (no download anchor)")
+
+    # Camera mới phải ghi tự động, nếu không tính năng chỉ là nhãn.
+    created = False
+    for rel in ("src/app/api/cameras/route.ts", "src/app/api/cameras/route.tsx"):
+        f = REPO / rel
+        if f.exists() and re.search(r"recordEnabled\s*:\s*true", f.read_text(encoding="utf-8", errors="replace")):
+            created = True
+    if not created:
+        raise Fail("creating a camera does not set recordEnabled: true — new cameras would never record")
+
+    _run_proof("test:p4", "p4-local-recording.test.ts", ("pickMimeType", "recordingFileName", "Blob"))
+
+    code, out = sh(["npm", "run", "test:t1336", "--silent"], timeout=600)
+    if code != 0:
+        raise Fail(f"test:t1336 regressed (exit {code}): {out[-500:]}")
+    log("PASS P4: browser-side recording proven by test:p4, drawer contract still green")
+
+
 GATES = {
     "M0": gate_m0,
     "M1": gate_m1,
@@ -782,6 +824,7 @@ GATES = {
     "P1": gate_p1,
     "P2": gate_p2,
     "P3": gate_p3,
+    "P4": gate_p4,
 }
 
 

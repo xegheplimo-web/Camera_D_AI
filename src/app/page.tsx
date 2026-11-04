@@ -98,7 +98,7 @@ export default function HomePage() {
   ];
 
   return (
-    <div className="grid gap-4 xl:grid-cols-12">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
       {/* Robot hero */}
       <section className="glass relative overflow-hidden rounded-2xl p-4 xl:col-span-4">
         <div className="pointer-events-none absolute -left-10 -top-10 h-48 w-48 rounded-full bg-cyan-500/20 blur-3xl" />
@@ -165,7 +165,7 @@ export default function HomePage() {
       </div>
 
       {/* Camera list */}
-      <div className="glass flex flex-col gap-2 rounded-2xl p-3 xl:col-span-2">
+      <div className="glass flex min-w-0 flex-col gap-2 rounded-2xl p-3 xl:col-span-2">
         <div className="scroll-thin flex gap-2 overflow-x-auto xl:flex-col xl:overflow-visible">
           {d?.cameras.map((c) => (
             <button
@@ -187,7 +187,7 @@ export default function HomePage() {
       </div>
 
       {/* Chat */}
-      <div className="xl:col-span-4 xl:row-span-2">
+      <div className="min-w-0 xl:col-span-4 xl:row-span-2">
         <ChatPanel compact />
       </div>
 
@@ -215,7 +215,7 @@ export default function HomePage() {
       </Card>
 
       {/* Recent events */}
-      <Card title="Sự kiện gần đây" action={<Link href="/memory" className="flex items-center text-xs text-cyan-300">Xem tất cả <ChevronRight className="h-3 w-3" /></Link>} className="xl:col-span-3">
+      <Card title="Sự kiện gần đây" action={<Link href="/memory" className="flex items-center text-xs text-cyan-300">Xem tất cả <ChevronRight className="h-3 w-3" /></Link>} className="min-w-0 xl:col-span-3">
         <div className="scroll-thin -mx-2 max-h-72 space-y-0.5 overflow-y-auto">
           {d?.recent.map((e) => <EventRow key={e.id} e={e} onOpen={setOpen} highlight={newIds.has(e.id)} />)}
         </div>

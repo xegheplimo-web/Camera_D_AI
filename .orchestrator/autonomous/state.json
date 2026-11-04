@@ -3,12 +3,12 @@
   "repo": "F:/Camera-D-AI/publish/Camera_D_AI",
   "baseline_commit": "1dc9ac8",
   "created": "2026-11-05T00:40:00+07:00",
-  "cycle": 10,
+  "cycle": 11,
   "max_steps_per_day": 24,
-  "steps_today": 10,
+  "steps_today": 11,
   "steps_today_date": "2026-11-05",
   "stop_flag": "F:/Camera-D-AI/publish/Camera_D_AI/.orchestrator/autonomous/STOP",
-  "current": null,
+  "current": "P4",
   "milestones": [
     {
       "id": "M0",
@@ -221,12 +221,21 @@
       "verified_at": "2026-11-05T02:07:13",
       "evidence_sha": null,
       "gate_output": "PASS P3: camera wall renders a persisted grid, proven by test:p3\nGATE PASS P3"
+    },
+    {
+      "id": "P4",
+      "title": "Ghi vào máy: ghi hình trực tiếp về máy người dùng (Bắt đầu/Dừng/Lưu), hỗ trợ cả IP camera (MJPEG qua canvas) và webcam; camera mới thêm thì bật ghi tự động; nút Xem lại trên trang chủ",
+      "status": "doing",
+      "priority": 15,
+      "prereq": [],
+      "gate": "test:p4 chạy pass (state machine + mime + filename, fake MediaRecorder), local-recorder.ts không ghi đĩa, component dùng captureStream, POST tạo camera đặt recordEnabled=true, test:t1336 vẫn xanh",
+      "attempts": 1
     }
   ],
   "run": {
-    "id": null,
-    "started_at": null,
-    "status": "done",
+    "id": "P4-1793822656",
+    "started_at": "2026-11-05T03:04:16",
+    "status": "doing",
     "needs_reconcile": false
   }
 }
