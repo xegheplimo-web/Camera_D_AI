@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { audit } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
 import { authorizeResource } from "@/lib/scope";
+import { tenantIdOf } from "@/lib/knowledge/tenant";
 import { AiError } from "@/lib/ai/types";
 import { aiProblem, readJson } from "@/lib/ai/http";
 import { normalizeExtraction } from "@/lib/ai/vision-worker";
@@ -16,8 +17,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   try {
     const { id } = await ctx.params;
     const body = await readJson(req, 100 * 1024);
+    const tenantId = await tenantIdOf(auth.session);
     const row = await db.transaction(async (tx) => {
-      const [cur] = await tx.select().from(extractions).where(eq(extractions.id, Number(id))).for("update").limit(1);
+      const [cur] = await tx.select().from(extractions).where(and(eq(extractions.id, Number(id)), eq(extractions.tenantId, tenantId))).for("update").limit(1);
       if (!cur) throw new AiError("NOT_FOUND", "Không tìm thấy trích xuất.", 404);
       const scoped = await authorizeResource(auth.session, "extraction", cur.id, "write");
       if (!scoped.ok) throw new AiError("NOT_FOUND", "Không tìm thấy trích xuất trong phạm vi được phép.", 404);
@@ -50,10 +52,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       else if (body.action === "temporary") { patch.status = "REVIEW_REQUIRED"; patch.memoryType = "temporary"; patch.verifiedAt = null; patch.verifiedBy = null; }
       else if (body.action === "reject") { patch.status = "FAILED"; patch.verifiedAt = null; patch.verifiedBy = null; }
       if (body.attachEvent === true && !cur.eventId) {
-        const [asset] = await tx.select().from(assets).where(eq(assets.id, cur.assetId)).limit(1);
-        const [cam] = asset?.cameraId ? [{ id: asset.cameraId }] : await tx.select({ id: cameras.id }).from(cameras).orderBy(cameras.id).limit(1);
+        const [asset] = await tx.select().from(assets).where(and(eq(assets.id, cur.assetId), eq(assets.tenantId, tenantId))).limit(1);
+        const [cam] = asset?.cameraId ? [{ id: asset.cameraId }] : await tx.select({ id: cameras.id }).from(cameras).where(eq(cameras.tenantId, tenantId)).orderBy(cameras.id).limit(1);
         if (cam) {
-          const [event] = await tx.insert(events).values({ cameraId: cam.id, type: "manual", label: `Ghi chú trích xuất: ${patch.title ?? cur.title}`,
+          const [event] = await tx.insert(events).values({ tenantId, cameraId: cam.id, type: "manual", label: `Ghi chú trích xuất: ${patch.title ?? cur.title}`,
             note: (patch.result ?? cur.result)?.summary ?? cur.note, assetId: cur.assetId,
             tags: ["trích xuất", ...((patch.tags as string[]) ?? cur.tags)].slice(0, 10), priority: "important", source: cur.source === "demo" ? "demo" : "manual", createdBy: auth.session.name }).returning();
           patch.eventId = event.id;

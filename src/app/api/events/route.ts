@@ -6,6 +6,7 @@ import { thumbMap } from "@/lib/qa";
 import { audit, problem } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
 import { authorizeResource } from "@/lib/scope";
+import { tenantIdOf } from "@/lib/knowledge/tenant";
 import { getSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,8 @@ export async function GET(req: Request) {
   await ensureSeed();
   const u = new URL(req.url);
   const settings = await getSettings();
-  const conds: SQL[] = [];
+  const tenantId = await tenantIdOf(auth.session);
+  const conds: SQL[] = [eq(events.tenantId, tenantId)];
   const type = u.searchParams.get("type");
   const camera = u.searchParams.get("camera");
   const from = u.searchParams.get("from");
@@ -55,8 +57,8 @@ export async function GET(req: Request) {
   const where = conds.length ? and(...conds) : undefined;
   const rows = await db.select().from(events).where(where).orderBy(desc(events.happenedAt), desc(events.id)).limit(limit);
   const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(events).where(where);
-  const tm = await thumbMap(auth.session, rows.map((r) => r.assetId));
-  const cams = await db.select().from(cameras);
+  const tm = await thumbMap(auth.session, rows.map((r) => r.assetId), tenantId);
+  const cams = await db.select().from(cameras).where(eq(cameras.tenantId, tenantId));
   return Response.json({
     total: c,
     demoMode: settings.demoMode,
@@ -70,12 +72,13 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const auth = await authorize("capture");
   if (auth.response) return auth.response;
+  const tenantId = await tenantIdOf(auth.session);
   const b = await req.json().catch(() => null);
   if (!b) return problem(400, "Body không hợp lệ");
   const type = String(b.type ?? "manual");
   if (!TYPES.includes(type)) return problem(400, "Loại sự kiện không hợp lệ");
   const cameraId = Number(b.cameraId);
-  const cam = (await db.select().from(cameras).where(eq(cameras.id, cameraId)).limit(1))[0];
+  const cam = (await db.select().from(cameras).where(and(eq(cameras.id, cameraId), eq(cameras.tenantId, tenantId))).limit(1))[0];
   if (!cam) return problem(400, "Camera không tồn tại");
 
   // Evidence attachments must resolve inside the caller's scope (own upload, camera-bound or demo media).
@@ -88,7 +91,7 @@ export async function POST(req: Request) {
 
   const idem = b.idempotencyKey ? String(b.idempotencyKey).slice(0, 120) : null;
   if (idem) {
-    const ex = await db.select().from(events).where(eq(events.idempotencyKey, idem)).limit(1);
+    const ex = await db.select().from(events).where(and(eq(events.idempotencyKey, idem), eq(events.tenantId, tenantId))).limit(1);
     if (ex.length) return Response.json({ ...ex[0], duplicate: true });
   }
 
@@ -97,7 +100,7 @@ export async function POST(req: Request) {
   const confidence = typeof b.confidence === "number" ? Math.max(0, Math.min(1, b.confidence)) : null;
 
   // Alert rules (server-side) may escalate priority; a client cannot push its own severity for critical types.
-  const rules = await db.select().from(alertRules).where(eq(alertRules.enabled, true));
+  const rules = await db.select().from(alertRules).where(and(eq(alertRules.enabled, true), eq(alertRules.tenantId, tenantId)));
   const matched = rules.find((r) => r.type === type && (!r.cameraId || r.cameraId === cameraId) && (confidence ?? 1) >= r.minConfidence);
   const requestedPriority = ["normal", "important", "critical"].includes(b.priority) ? b.priority : "normal";
   const priority = matched && !clientReported ? matched.priority : clientReported ? "normal" : requestedPriority;
@@ -105,6 +108,7 @@ export async function POST(req: Request) {
   const [row] = await db
     .insert(events)
     .values({
+      tenantId,
       cameraId,
       type,
       objectClass: b.objectClass ? String(b.objectClass).slice(0, 32) : null,

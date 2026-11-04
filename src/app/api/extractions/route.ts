@@ -7,6 +7,7 @@ import { thumbMap } from "@/lib/qa";
 import { audit } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
 import { authorizeResource, extractionScope } from "@/lib/scope";
+import { tenantIdOf } from "@/lib/knowledge/tenant";
 import { getSettings } from "@/lib/settings";
 import { enqueueJob, dispatchJobs, jobView } from "@/lib/ai/jobs";
 import { aiProblem, readJson, requestKey, throttle } from "@/lib/ai/http";
@@ -56,7 +57,7 @@ export async function POST(req: Request) {
     const source = asset.origin === "demo" ? "demo" : "live";
     // Saving a note is a Gateway operation: no Hermes/model dependency.
     if (b.action === "draft") {
-      const [row] = await db.insert(extractions).values({ assetId, note, title, tags, roi, taskType, ...meta, status: "DRAFT", source, createdBy: auth.session.name, userId: auth.session.sub }).returning();
+      const [row] = await db.insert(extractions).values({ tenantId: await tenantIdOf(auth.session), assetId, note, title, tags, roi, taskType, ...meta, status: "DRAFT", source, createdBy: auth.session.name, userId: auth.session.sub }).returning();
       await audit("note.save", { targetType: "extraction", targetId: row.id });
       return Response.json({ ...row, thumb: asset.url && !asset.url.startsWith("local:") ? asset.url : `/api/assets/${asset.id}` }, { status: 201 });
     }
