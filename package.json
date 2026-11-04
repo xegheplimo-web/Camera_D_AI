@@ -34,6 +34,7 @@
     "test:t1350": "node --import tsx --test tests/t1350-duplicates.test.ts",
     "test:t1355": "node --import tsx --test tests/t1355-merge.test.ts",
     "test:t1356": "node --import tsx --test tests/t1356-pairs.test.ts",
+    "test:t1351": "node --import tsx --test tests/t1351-duplicate-review.test.ts",
     "test:t1361": "node --import tsx --test tests/t1361-embeddings.test.ts",
     "test:t1364": "node --import tsx --test tests/t1364-recognize.test.ts",
     "test:t1365": "node --import tsx --test tests/t1365-corrections.test.ts",
