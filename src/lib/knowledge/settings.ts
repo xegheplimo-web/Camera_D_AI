@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { cameraSettings, cameras } from "@/db/schema";
+import { normalizeFeatures, type CameraFeatureId } from "@/lib/camera/features";
 import { HttpError } from "@/lib/http-guard";
 import { asObject, denied } from "./http";
 
@@ -18,7 +19,8 @@ function capabilities(_row: CameraSettingsRow) {
 }
 
 export function settingsView(row: CameraSettingsRow) {
-  return { ...row, capabilities: capabilities(row) };
+  const featureFlags: Record<CameraFeatureId, boolean> = normalizeFeatures(row.features);
+  return { ...row, capabilities: capabilities(row), featureFlags };
 }
 
 /**

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { ArrowLeft, Film, ImagePlus, Loader2, Plus, Save, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api, blobToDataUrl, fileToDataUrl, uploadDataUrl } from "@/lib/client";
+import { CAMERA_FEATURES, normalizeFeatures, type CameraFeatureId } from "@/lib/camera/features";
 import { Badge } from "./ui";
 import type { Cam } from "./CameraView";
 
@@ -22,6 +23,8 @@ type CamSettings = {
   revision: number;
   /** Server tính — xem GET /settings: cờ nào === true mới được bật; `reason` giải thích cờ khoá. `audio` = luồng có track âm thanh. */
   capabilities?: Partial<Record<FlagKey | "audio", boolean>> & { reason?: Record<string, string> };
+  /** P1: cờ tính năng đã chuẩn hoá phía server (normalizeFeatures) — client không tự suy mặc định. */
+  featureFlags?: Record<CameraFeatureId, boolean>;
 };
 
 type KItem = { id: number; title: string; sku: string | null; note: string | null; priceVnd: number | null; createdAt: string };
@@ -40,24 +43,6 @@ const PROFILES: [string, string][] = [
 ];
 
 type FlagKey = "live" | "playback" | "snapshot" | "record" | "ask" | "pricing";
-const FEATURE_LIST: { key: FlagKey; label: string }[] = [
-  { key: "live", label: "Xem trực tiếp" },
-  { key: "playback", label: "Xem lại" },
-  { key: "snapshot", label: "Chụp ảnh" },
-  { key: "record", label: "Lưu video" },
-  { key: "ask", label: "Hỏi AI" },
-  { key: "pricing", label: "Tính tiền" },
-];
-
-/** Giá trị hiển thị của từng tính năng; tính năng khả dụng mặc định bật trừ khi đã tắt rõ ràng. */
-const flagsOf = (f: Record<string, unknown> | undefined): Record<FlagKey, boolean> => ({
-  live: f?.live !== false,
-  playback: f?.playback === true,
-  snapshot: f?.snapshot !== false,
-  record: f?.record === true,
-  ask: f?.ask !== false,
-  pricing: f?.pricing === true,
-});
 
 const UPLOAD_MAX = 25 * 1024 * 1024;
 const UPLOAD_MIMES = new Set(["image/jpeg", "image/png", "image/webp", "video/webm", "video/mp4"]);
@@ -215,8 +200,8 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
     return ok;
   };
 
-  // "Lưu video" lái cột record_enabled (control-plane thật qua recorder); các cờ còn lại vẫn là tuỳ chọn trong features.
-  const setFlag = (key: FlagKey, v: boolean) =>
+  // "Ghi hình" lái cột record_enabled (control-plane thật qua recorder); các cờ còn lại vẫn là tuỳ chọn trong features.
+  const setFlag = (key: CameraFeatureId, v: boolean) =>
     void save(key === "record" ? { recordEnabled: v } : { features: { ...s!.features, [key]: v } });
 
   const name = nameD ?? cam.name;
@@ -507,7 +492,12 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
     }
   };
 
-  const flags = flagsOf(s?.features);
+  // P1: cờ tính năng lấy từ settingsView (server đã normalize); `record` lái cột
+  // record_enabled nên trạng thái "bật" lấy từ cột thật, không phải khoá features.
+  const feat: Record<CameraFeatureId, boolean> = {
+    ...(s?.featureFlags ?? normalizeFeatures(s?.features)),
+    record: s?.recordEnabled === true,
+  };
   const recReady = s?.capabilities?.record === true;
   const recReason = s?.capabilities?.reason?.record;
   const hasAudio = recReady && s?.capabilities?.audio === true;
@@ -583,23 +573,30 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
               {PROFILES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </label>
-          <div className="mt-2 divide-y divide-white/5">
-            {FEATURE_LIST.map((f) => {
-              const ready = s ? s.capabilities?.[f.key] === true : false;
-              const reason = s?.capabilities?.reason?.[f.key];
+        </Section>
+
+        {/* 3. Tính năng camera — luôn hiển thị: đây là nơi bật tính năng cho riêng camera này.
+               Tắt chỉ giấu mục liên quan, không xoá dữ liệu đã lưu. */}
+        <Section title="Tính năng camera">
+          <div className="divide-y divide-white/5">
+            {CAMERA_FEATURES.map((f) => {
+              const isRecord = f.id === "record";
+              const blocked = isRecord && !recReady;
               return (
-                <div key={f.key} data-feature={f.key} className="flex items-center justify-between gap-2 py-2 text-sm">
+                <div key={f.id} data-feature={f.id} className="flex items-center justify-between gap-2 py-2 text-sm">
                   <span className="min-w-0">
                     {f.label}
-                    {!ready && reason ? <span className="block truncate text-[11px] font-normal text-slate-500">{reason}</span> : null}
+                    <span className="block truncate text-[11px] font-normal text-slate-500">
+                      {blocked && recReason ? recReason : f.hint}
+                    </span>
                   </span>
                   <span className="flex items-center gap-2">
-                    {!ready && s && <Badge color="slate">Chưa khả dụng</Badge>}
+                    {blocked && s && <Badge color="slate">Chưa khả dụng</Badge>}
                     <Switch
                       label={f.label}
-                      checked={ready && (f.key === "record" ? s?.recordEnabled === true : flags[f.key])}
-                      disabled={!ready || !s || saving}
-                      onChange={(v) => setFlag(f.key, v)}
+                      checked={isRecord ? s?.recordEnabled === true : feat[f.id]}
+                      disabled={!s || saving || blocked}
+                      onChange={(v) => setFlag(f.id, v)}
                     />
                   </span>
                 </div>
@@ -608,7 +605,8 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
           </div>
         </Section>
 
-        {/* 3. Ảnh & ghi chú */}
+        {/* 4. Ảnh & ghi chú — chỉ khi camera bật nhận diện hàng hoá hoặc đếm kho */}
+        {feat.product || feat.stock ? (
         <Section title="Ảnh & ghi chú">
           {!detail ? (
             <div className="space-y-2">
@@ -822,8 +820,10 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
             </div>
           )}
         </Section>
+        ) : null}
 
-        {/* 4. Khu vực & quy tắc */}
+        {/* 5. Khu vực & quy tắc — chỉ khi camera bật chuyển động/xâm nhập/đếm người/đếm kho */}
+        {feat.motion || feat.intrusion || feat.people || feat.stock ? (
         <Section title="Khu vực & quy tắc">
           {(
             [
@@ -849,8 +849,10 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
             <Badge color="slate">Chưa khả dụng</Badge>
           </div>
         </Section>
+        ) : null}
 
-        {/* 5. Lưu trữ & cảnh báo */}
+        {/* 6. Lưu trữ & cảnh báo — chỉ khi camera bật ghi hình */}
+        {feat.record ? (
         <Section title="Lưu trữ & cảnh báo">
           <div className="space-y-2">
             <div className="flex items-end gap-2">
@@ -898,6 +900,7 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
             <p className="text-[11px] text-slate-500">Ghi hình chạy trên máy chủ (mediaMTX), không phụ thuộc trình duyệt. Tắt trình duyệt vẫn ghi tiếp.</p>
           </div>
         </Section>
+        ) : null}
 
         {toast && <div className="anim-fadeup sticky bottom-2 rounded-xl bg-cyan-600/90 px-4 py-2 text-center text-sm font-medium shadow-lg">{toast}</div>}
       </div>
