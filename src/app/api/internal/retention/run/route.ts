@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { db } from "@/db";
 import { runRetention, unlinkPending } from "@/lib/retention";
-import { runVideoRetention } from "@/lib/recordings";
+import { enforceRecordingQuota, runVideoRetention } from "@/lib/recordings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -20,5 +20,8 @@ export async function POST(req: Request) {
   // Retention video mediaMTX (đĩa, không rollback được) — sau cùng: theo
   // camera_settings.retention_days → cameras.retention_days → global.
   const recordings = await runVideoRetention();
-  return Response.json({ ...report, recordings });
+  // M6 — quota dung lượng per camera (RECORDING_QUOTA_GB): chống một camera
+  // lấp đầy đĩa, chạy sau retention theo ngày.
+  const recordingsQuota = await enforceRecordingQuota();
+  return Response.json({ ...report, recordings, recordingsQuota });
 }

@@ -316,3 +316,94 @@ export async function runVideoRetention(): Promise<VideoRetentionReport> {
   }
   return report;
 }
+
+/* ---------------- quota dung lượng (M6) ---------------- */
+
+const GiB = 1024 ** 3;
+
+/** RECORDING_QUOTA_GB → byte; missing/không phải số/<=0 ⇒ 0 (quota tắt, không throw). */
+function quotaCapBytes(): number {
+  const gb = Number(process.env.RECORDING_QUOTA_GB);
+  return Number.isFinite(gb) && gb > 0 ? gb * GiB : 0;
+}
+
+/** Mọi regular file dưới <dir> (đệ quy — layout <key>/<date>/<segment>). */
+async function walkFiles(dir: string): Promise<{ path: string; size: number; mtimeMs: number }[]> {
+  const out: { path: string; size: number; mtimeMs: number }[] = [];
+  for (const name of await readdir(dir).catch(() => [] as string[])) {
+    const full = join(dir, name);
+    const st = await stat(full).catch(() => null);
+    if (st?.isDirectory()) out.push(...(await walkFiles(full)));
+    else if (st?.isFile()) out.push({ path: full, size: st.size, mtimeMs: st.mtimeMs });
+  }
+  return out;
+}
+
+/** cameraKey → tenantId theo cameras (streamName/basename source) — giống runVideoRetention. */
+async function recordingKeyTenants(): Promise<Map<string, number>> {
+  const rows = await db.select({ streamName: cameras.streamName, sourceCiphertext: cameras.sourceCiphertext, tenantId: cameras.tenantId }).from(cameras);
+  const map = new Map<string, number>();
+  for (const r of rows) for (const k of recordingKeysFor(r)) map.set(k, r.tenantId);
+  return map;
+}
+
+/**
+ * Chọn file cần xoá để tổng <= capBytes: CŨ NHẤT trước (mtimeMs), KHÔNG BAO GIỜ
+ * gồm file mới nhất (segment mediaMTX đang ghi) — kể cả khi điều đó để usage
+ * trên cap. capBytes <= 0/NaN ⇒ quota tắt ⇒ [].
+ */
+export function selectOldestToDelete(
+  files: { path: string; size: number; mtimeMs: number }[],
+  capBytes: number,
+): { path: string; size: number }[] {
+  if (!Number.isFinite(capBytes) || capBytes <= 0) return [];
+  let remaining = files.reduce((a, f) => a + f.size, 0);
+  if (remaining <= capBytes) return [];
+  const deletable = [...files].sort((a, b) => a.mtimeMs - b.mtimeMs).slice(0, -1); // bỏ file mới nhất
+  const out: { path: string; size: number }[] = [];
+  for (const f of deletable) {
+    if (remaining <= capBytes) break;
+    out.push({ path: f.path, size: f.size });
+    remaining -= f.size;
+  }
+  return out;
+}
+
+export type RecordingQuotaReport = { deleted: number; bytes: number; capped: number };
+
+/**
+ * Quota dung lượng per camera key (RECORDING_QUOTA_GB, mặc định tắt): mỗi thư
+ * mục key quá cap thì xoá segment cũ nhất tới khi <= cap — chống một camera
+ * lấp đầy đĩa. Ghi 1 audit "recording.quota_prune" cho mỗi key thực sự xoá.
+ * opts.dir/capBytes để test trỏ thư mục tạm; production gọi không tham số.
+ */
+export async function enforceRecordingQuota(opts?: { capBytes?: number; dir?: string }): Promise<RecordingQuotaReport> {
+  const cap = opts?.capBytes ?? quotaCapBytes();
+  const report: RecordingQuotaReport = { deleted: 0, bytes: 0, capped: 0 };
+  if (!Number.isFinite(cap) || cap <= 0) return report;
+  const root = opts?.dir ?? recordingsDir();
+  const tenantByKey = await recordingKeyTenants();
+  for (const key of await dirKeys(root)) {
+    const dir = dirOf(root, key);
+    if (!dir) continue;
+    const toDelete = selectOldestToDelete(await walkFiles(dir), cap);
+    let freed = 0, n = 0;
+    for (const f of toDelete) {
+      const removed = await rm(f.path, { force: true }).then(() => true).catch(() => false);
+      if (removed) { n++; freed += f.size; }
+    }
+    if (!n) continue;
+    report.deleted += n;
+    report.bytes += freed;
+    report.capped++;
+    await db.insert(auditLog).values({
+      tenantId: tenantByKey.get(key) ?? null,
+      actor: "system",
+      action: "recording.quota_prune",
+      targetType: "recording",
+      targetId: key,
+      detail: `capBytes=${cap} dir=${key} deleted=${n} freedMb=${(freed / 1024 ** 2).toFixed(1)}`,
+    });
+  }
+  return report;
+}
