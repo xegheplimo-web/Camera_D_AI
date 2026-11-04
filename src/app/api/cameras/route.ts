@@ -61,14 +61,20 @@ export async function POST(req: Request) {
       warning = "Đã lưu cấu hình mã hóa, nhưng go2rtc chưa sẵn sàng. Vào Camera > Kết nối lại sau khi bật go2rtc.";
     }
   }
-  // T-1340: tạo path recorder khi caller yêu cầu ghi ngay (settings mặc định recordEnabled=false ⇒ bỏ qua).
+  // T-1340: tạo path recorder khi caller yêu cầu ghi ngay. P4: camera mới mặc
+  // định bật ghi — hàng settings phản ánh cờ ngay khi tạo, kể cả khi recorder
+  // phía server chưa bắt đầu (webcam/demo không có path). Chỉ bỏ qua khi request
+  // chỉ rõ recordEnabled === false.
   let recording = false;
-  if (connected && sourceUrl && body?.recordEnabled === true) {
+  const autoRecord = body?.recordEnabled !== false;
+  if (autoRecord) {
+    await db.insert(cameraSettings).values({ cameraId: row.id, tenantId: row.tenantId, recordEnabled: true })
+      .onConflictDoNothing({ target: cameraSettings.cameraId });
+    await db.update(cameraSettings).set({ recordEnabled: true }).where(eq(cameraSettings.cameraId, row.id));
+  }
+  if (connected && sourceUrl && autoRecord) {
     const st = await ensureRecordingPath({ streamName: `dai_cam_${row.id}`, sourceUrl });
     if (st.reachable && st.recording) {
-      await db.insert(cameraSettings).values({ cameraId: row.id, tenantId: row.tenantId })
-        .onConflictDoNothing({ target: cameraSettings.cameraId });
-      await db.update(cameraSettings).set({ recordEnabled: true }).where(eq(cameraSettings.cameraId, row.id));
       recording = true;
     } else {
       warning = "Đã lưu camera nhưng recorder mediaMTX không phản hồi — bật 'Lưu video' lại trong Cài đặt.";

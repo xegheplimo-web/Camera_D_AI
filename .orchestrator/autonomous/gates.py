@@ -802,6 +802,17 @@ def gate_p4() -> None:
 
     _run_proof("test:p4", "p4-local-recording.test.ts", ("pickMimeType", "recordingFileName", "Blob"))
 
+    # Unit test chỉ chứng minh state machine. Yêu cầu của chủ dự án là "bấm Ghi →
+    # Dừng → video về máy", nên gate phải bấm thật trong Chromium và nhận đúng
+    # một file tải về.
+    if not _scripts().get("test:p4:smoke"):
+        raise Fail("package.json has no test:p4:smoke — the button was never pressed for real")
+    code, out = sh(["npm", "run", "test:p4:smoke", "--silent"], timeout=420)
+    if code != 0:
+        raise Fail(f"test:p4:smoke failed (exit {code}): {out[-600:]}")
+    if "ALL PASS" not in out:
+        raise Fail(f"test:p4:smoke did not report ALL PASS: {out[-300:]}")
+
     code, out = sh(["npm", "run", "test:t1336", "--silent"], timeout=600)
     if code != 0:
         raise Fail(f"test:t1336 regressed (exit {code}): {out[-500:]}")

@@ -161,6 +161,14 @@ export default function HomePage() {
 
       {/* Camera main */}
       <div className="glass rounded-2xl p-3 xl:col-span-6">
+        {cam && (
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-xs font-semibold text-slate-300">{cam.name} – {cam.location}</span>
+            <Link href="/camera#recordings" className="flex shrink-0 items-center gap-1 text-xs font-semibold text-cyan-300 hover:underline">
+              <Film className="h-3.5 w-3.5" /> Xem lại
+            </Link>
+          </div>
+        )}
         {cam ? <CameraView cam={cam} compact onEvent={load} /> : <div className="aspect-video animate-pulse rounded-xl bg-slate-800/50" />}
       </div>
 
@@ -170,7 +178,7 @@ export default function HomePage() {
           {d?.cameras.map((c) => (
             <button
               key={c.id}
-              onClick={() => setCamId(c.id)}
+              onClick={() => { setCamId(c.id); window.localStorage.setItem("dai_cam_id", String(c.id)); }}
               className={`flex min-w-[170px] items-center gap-2 rounded-xl border p-1.5 text-left transition xl:min-w-0 ${c.id === cam?.id ? "border-emerald-400/70 bg-emerald-500/10 shadow-[0_0_14px_rgba(52,211,153,0.3)]" : "border-white/10 hover:bg-white/5"}`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}

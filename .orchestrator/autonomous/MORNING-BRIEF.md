@@ -31,8 +31,34 @@ Các agent autonomous tự ghi thêm vào mục "Cần Sếp" khi gặp blocker 
 | `3e4555c` | **P1** cấu hình TỪNG camera (spec của Sếp) | registry 9 tính năng; drawer chỉ hiện mục của tính năng đã bật; tắt tính năng **không xoá** ảnh/sản phẩm; `test:p1` 6/6 |
 | `cb2384a` | **P2** sản phẩm gắn nhiều camera | bảng `camera_products` (n-n) tạo bằng DDL chỉ-thêm, KHÔNG dùng `drizzle-kit push` trên DB thật; API tenant-scoped + audit; camera B không thấy sản phẩm của A; `test:p2` 6/6 |
 | `ac250fe` | **P3** tường camera | route `/wall`, lưới kéo-thả, layout lưu theo **tenant+user**; tile lấy snapshot mỗi 3s nên **không chiếm slot MJPEG** (wall 10 camera không bóp chế độ xem 1 camera); `test:p3` 6/6 |
+| `c519ef1` | Test bắt lỗi (RED) | `test:responsive` đo tràn ngang bằng Playwright; sửa `t1336` theo spec mới |
+| `0405ac1` | **Sửa regression do P1** | P1 đã **xoá 6 switch AI** (live/record/playback/snapshot/ask/pricing) khỏi drawer và thay bằng mục mới. Đã khôi phục nguyên vẹn cơ chế "Chưa khả dụng" + PATCH theo revision; `test:t1336` 9/9 (không nới assertion nào) |
+| `a749759` | **Siết gate** | Gate P1 giờ **bắt buộc** `test:t1336` xanh — gate chỉ kiểm cái được thêm thì không thấy cái bị xoá. Gate cũng tự nạp `.env` nên verdict không phụ thuộc env của người gọi |
+| `c0d158e` | **P1 Responsive (lỗi trang chủ)** | Đo được tràn `2184px @1024`, `2176px @768`, `2565px @375`. Nguyên nhân: grid trang chủ không khai báo cột dưới `xl` ⇒ track `auto` nới theo max-content. Sửa `grid-cols-1` + `min-w-0` cho 3 con. **Không** dùng `overflow-x:hidden`. `test:responsive` **18/18 PASS**, tỉ lệ 16:9 vẫn 1.778 |
 
 Trước đó: **M0** (khoá MediaMTX — anon RTSP 401, camera 796 frame 200) và **M4** (camera EZVIZ 796 online) đã xong.
+
+## P4 đang làm — "Ghi vào máy" (spec mới của Sếp, 03:00)
+
+Ba chức năng phải **tách bạch**, không gộp:
+
+| Chức năng | Chạy ở đâu | Lưu ở đâu |
+|---|---|---|
+| Ghi tự động | máy chủ (MediaMTX + quota 50 GB đã có) | `runtime/recordings` |
+| **Ghi vào máy** (mới) | trình duyệt | file người dùng tải về |
+| Xem lại | máy chủ (RecordingsPanel đã có) | phát lại / tải đoạn |
+
+Quyết định kỹ thuật đã chốt (vì `MediaRecorder` **không** đọc được `<img>` MJPEG):
+vẽ frame đang decode vào `<canvas>` (`drawImage`) ~10 fps → `canvas.captureStream(10)`
+→ `MediaRecorder` → Blob → `<a download>` để trình duyệt hỏi nơi lưu. Webcam thì ghi
+trực tiếp `MediaStream`. **Không** ghi đĩa bằng code, **không** đụng recorder máy chủ.
+
+Kèm 2 việc Sếp nêu: camera mới thêm phải `recordEnabled: true` (schema đang mặc định
+`false`), và nút **Xem lại** phải có ngay trên camera ở trang chủ.
+
+Gate P4 đã đăng ký và đang **đỏ** (đúng): `test:p4` + kiểm module không dùng `fs`
++ kiểm component có `captureStream`/`download` + kiểm API tạo camera bật ghi
++ `test:t1336` vẫn xanh.
 
 ## Loop tự bắt lỗi của chính nó (để Sếp tin, không phải tin lời em)
 

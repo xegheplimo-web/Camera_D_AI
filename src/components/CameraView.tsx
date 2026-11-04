@@ -7,6 +7,7 @@ import { api, drawToCanvas, uploadDataUrl, blobToDataUrl, getDetector } from "@/
 import { streamBadge } from "@/lib/camera/status";
 import { vi } from "@/lib/labels";
 import { useApp } from "./AppState";
+import LocalRecordButton from "./LocalRecordButton";
 
 export type Cam = { id: number; code: string; name: string; location: string; sourceType: string; thumbnail: string | null; status: string; sourceHost?: string | null; streamName?: string | null; enabled?: boolean };
 
@@ -461,6 +462,7 @@ export default function CameraView({ cam, compact = false, onEvent, onSettings }
           <button onClick={() => snapshot(false)} disabled={busy} className="rounded-lg bg-black/60 p-2 backdrop-blur hover:bg-cyan-600/60" aria-label="Chụp ảnh" title="Chụp ảnh">
             <CamIcon className="h-4 w-4" />
           </button>
+          <LocalRecordButton key={cam.id} cameraName={cam.name} getSource={source} />
           {onSettings && (
             <button onClick={onSettings} data-settings-frame={cam.id} className="rounded-lg bg-black/60 p-2 backdrop-blur hover:bg-cyan-600/60" aria-label="Cài đặt camera" title="Cài đặt">
               <Settings className="h-4 w-4" />

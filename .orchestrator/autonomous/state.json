@@ -225,11 +225,13 @@
     {
       "id": "P4",
       "title": "Ghi vào máy: ghi hình trực tiếp về máy người dùng (Bắt đầu/Dừng/Lưu), hỗ trợ cả IP camera (MJPEG qua canvas) và webcam; camera mới thêm thì bật ghi tự động; nút Xem lại trên trang chủ",
-      "status": "doing",
+      "status": "blocked",
       "priority": 15,
       "prereq": [],
       "gate": "test:p4 chạy pass (state machine + mime + filename, fake MediaRecorder), local-recorder.ts không ghi đĩa, component dùng captureStream, POST tạo camera đặt recordEnabled=true, test:t1336 vẫn xanh",
-      "attempts": 1
+      "attempts": 1,
+      "blocked_reason": "đang được điều phối thủ công bằng Devin (proc_95e6baf8fae4) — park để cron không dispatch trùng; mở lại sau khi verify",
+      "blocked_at": "2026-11-05T03:09:46"
     }
   ],
   "run": {

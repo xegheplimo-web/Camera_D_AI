@@ -146,6 +146,7 @@ export default function RecordingsPanel({ cameraId }: { cameraId: number }) {
   const clipHref = playing ? playUrl(cameraId, playing.start, "&download=1") : null;
 
   return (
+    <div id="recordings" className="scroll-mt-20">
     <Card title={<span className="flex items-center gap-2"><History className="h-4 w-4 text-cyan-300" /> Xem lại</span>}
       action={<input type="date" value={day} onChange={(e) => setDay(e.target.value)} className="input w-auto py-1 text-xs" aria-label="Chọn ngày" />}>
       <div className="space-y-2">
@@ -236,5 +237,6 @@ export default function RecordingsPanel({ cameraId }: { cameraId: number }) {
         )}
       </div>
     </Card>
+    </div>
   );
 }
