@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { Home, Video, ScanText, Brain, CopyCheck, MessageCircle, BarChart3, Settings, Bell, User, Power, LogOut, ShieldAlert, Phone } from "lucide-react";
+import { Home, Video, ScanText, Brain, CopyCheck, MessageCircle, BarChart3, Settings, Bell, User, Power, LogOut, ShieldAlert, Phone, LayoutGrid } from "lucide-react";
 import Robot, { MOOD_LABEL } from "./Robot";
 import VoiceCallDialog from "./VoiceCallDialog";
 import { useApp } from "./AppState";
@@ -12,6 +12,7 @@ import { OfflineBanner } from "./states";
 const NAV = [
   { href: "/", label: "Trang chủ", icon: Home },
   { href: "/camera", label: "Camera & Quan sát", icon: Video },
+  { href: "/wall", label: "Tường camera", icon: LayoutGrid },
   { href: "/extract", label: "Ảnh & Trích xuất", icon: ScanText },
   { href: "/memory", label: "Trí nhớ", icon: Brain },
   { href: "/knowledge/duplicates", label: "Rà soát trùng", icon: CopyCheck },
