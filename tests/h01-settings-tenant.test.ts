@@ -44,6 +44,11 @@ before(async () => {
   const [snap] = await db.select().from(appSettings).where(eq(appSettings.key, "demoMode")).limit(1);
   demoModeBefore = snap?.value;
   demoModeExisted = !!snap;
+  // Trạng thái khởi điểm phải xác định: dev DB có thể đang demoMode=true (seed hoặc
+  // người dùng bật tay). Ép về false để test (a) chỉ còn phụ thuộc vào việc PATCH bị chặn,
+  // không phụ thuộc giá trị cũ. after() khôi phục đúng giá trị đã snapshot.
+  await db.insert(appSettings).values({ key: "demoMode", value: false })
+    .onConflictDoUpdate({ target: appSettings.key, set: { value: false, updatedAt: new Date() } });
 
   const [t] = await db.insert(tenants).values({ slug: `${prefix}-b`, name: `${prefix} B` }).returning();
   tB = t.id;
@@ -74,7 +79,7 @@ after(async () => {
   if (app && app.exitCode === null) { app.kill("SIGTERM"); await Promise.race([new Promise((r) => app.once("exit", r)), wait(5000)]); if (app.exitCode === null) app.kill("SIGKILL"); }
   // Khôi phục app_settings.demoMode đúng như trước khi chạy (không xoá cả bảng).
   await db.delete(appSettings).where(eq(appSettings.key, "demoMode"));
-  if (demoModeExisted) await db.insert(appSettings).values({ key: "demoMode", value: demoModeBefore as never });
+  if (demoModeExisted) await db.insert(appSettings).values({ key: "demoMode", value: demoModeBefore });
   if (userIds.length) {
     await db.delete(sessions).where(inArray(sessions.userId, userIds));
     await db.delete(users).where(inArray(users.id, userIds));
