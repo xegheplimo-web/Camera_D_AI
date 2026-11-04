@@ -60,6 +60,36 @@ Gate P4 đã đăng ký và đang **đỏ** (đúng): `test:p4` + kiểm module 
 + kiểm component có `captureStream`/`download` + kiểm API tạo camera bật ghi
 + `test:t1336` vẫn xanh.
 
+## Hai lỗi hạ tầng phát hiện lúc 03:40–04:05 (đã sửa, có bằng chứng)
+
+**1. M7 của chính em mở lại lỗ hổng publish.** Em thêm `all_others: maxReaders: 16`
+để giới hạn reader cho mọi path — nhưng `all_others` là **wildcard path**, và có
+wildcard thì MediaMTX nhận publish vào **bất kỳ tên nào**. Gate M0 bắt được: publish
+vào `/khong_dang_ky_gate` trả về thành công thay vì 400. Đã chuyển trần reader sang
+`pathDefaults.maxReaders: 16` (giới hạn reader mà không đăng ký path lạ). M0 PASS lại:
+anon read **401**, publish path lạ **400**, credentialed read `h264,1280,720`.
+
+**2. Publisher của path `cam` chết vì thiếu credential.** `scripts/local/stack.ps1`
+dựng URL `rtsp://ip:8554/cam` **không kèm user/pass**, trong khi M0 đã khoá anonymous
+publish → ffmpeg bị **401** liên tục, path `cam` chết, và gate M0 mất luôn phần
+"credentialed read" (báo đúng: *stream is dead, so A1 proves nothing*). Đã sửa: đọc
+credential publisher từ `%USERPROFILE%\.camdai\mediamtx.env` lúc chạy, **không** lưu
+vào repo.
+
+**Nói thẳng một điều để Sếp khỏi hiểu sai:** path `cam` là **publisher testsrc2**
+(test pattern 1280x720), không phải camera thật — chính config ghi "Path test/publisher
+nội bộ". Camera thật (Truoc nha EZVIZ, id 796) đi đường khác: go2rtc → proxy RTSP
+`:8557` → camera `192.168.1.168:554`. Em đã kiểm **đường thật** đó riêng: frame JPEG
+**290 KB** (và camera 80: 44 KB), nên hình live vẫn sống. Nhưng xin ghi nhận: bằng
+chứng "h264,1280,720" của M0 là **synthetic**, không phải bằng chứng camera thật.
+
+**3. Proxy RTSP không restart được (đã sửa).** Script dùng `SO_EXCLUSIVEADDRUSE`, nên
+khi cổng 8557 còn socket TIME_WAIT thì bind fail `10048`, task `\CameraDai-RTSP-Proxy`
+ăn exit 1 và camera mất hình — đúng thứ đã xảy ra đêm nay. Đã đổi sang: **probe** xem
+có ai đang listen (từ chối chạy trùng) rồi bind với `SO_REUSEADDR`. Thêm ghi chú:
+`netstat` trên máy này **không thấy** listener của proxy dù nó vẫn phục vụ (đã xác
+nhận bằng RTSP `OPTIONS` → `200 OK`), nên đừng kết luận "proxy chết" chỉ vì netstat.
+
 ## Loop tự bắt lỗi của chính nó (để Sếp tin, không phải tin lời em)
 
 - `loop.py` là state machine, **không có LLM trong gate**: gate exit 0 mới được `done`.
