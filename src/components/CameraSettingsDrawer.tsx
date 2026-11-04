@@ -444,7 +444,7 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
   /** Lỗi tải tệp → tiếng Việt rõ ràng: mất mạng, hết phiên, thiếu quyền; còn lại giữ thông điệp server. */
   const uploadErrText = (e: unknown): string => {
     const m = e instanceof Error ? e.message : "";
-    if (e instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(m)) return "Mất kết nối mạng — kiểm tra mạng rồi thử lại.";
+    if (e instanceof TypeError || /failed to fetch|net::ERR|load failed/i.test(m)) return "Mất kết nối mạng — kiểm tra mạng rồi thử lại.";
     if (/\b401\b|hết hiệu lực/i.test(m)) return "Phiên đăng nhập đã hết hạn — hãy đăng nhập lại.";
     if (/\b403\b|không đủ quyền/i.test(m)) return "Tài khoản không có quyền tải tệp lên.";
     return m || "Không lưu được tệp";
