@@ -51,7 +51,7 @@ export async function enqueueJob(kind: JobKind, input: JobInput, session: Sessio
     }
     const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(aiJobs).where(and(eq(aiJobs.userId, session.sub), sql`${aiJobs.state} in ('queued','running')`));
     if (count >= 8) throw new AiError("QUEUE_FULL", "Bạn đang có 8 tác vụ chờ/chạy. Hãy chờ hoàn tất hoặc hủy bớt.", 429);
-    const savedInput = { ...input };
+    const savedInput = { ...input, tenantId };
     if (kind === "extract" && draft) {
       const [ex] = await tx.insert(extractions).values({ tenantId, assetId: input.assetId!, title: draft.title, tags: draft.tags,
         note: input.note!, roi: input.roi, taskType: input.taskType, productName: draft.productName, sku: draft.sku, priceVnd: draft.priceVnd, quantity: draft.quantity, status: "PROCESSING", source: draft.source,

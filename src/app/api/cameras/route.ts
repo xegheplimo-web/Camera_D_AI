@@ -3,6 +3,7 @@ import { cameraSettings, cameras } from "@/db/schema";
 import { ensureSeed } from "@/lib/seed";
 import { audit, problem } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
+import { tenantIdOf } from "@/lib/knowledge/tenant";
 import { ensureRecordingPath } from "@/lib/camera/recorder";
 import { encryptSource, ensureGo2rtcStream, maskCameraUrl, validateCameraUrl } from "@/lib/camera/stream";
 import { publicCamera } from "@/lib/camera/public";
@@ -15,13 +16,15 @@ export async function GET() {
   const auth = await authorize("read");
   if (auth.response) return auth.response;
   await ensureSeed();
-  const rows = await db.select().from(cameras).orderBy(cameras.id);
+  const tenantId = await tenantIdOf(auth.session);
+  const rows = await db.select().from(cameras).where(eq(cameras.tenantId, tenantId)).orderBy(cameras.id);
   return Response.json(rows.map(publicCamera), { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(req: Request) {
   const auth = await authorize("manage");
   if (auth.response) return auth.response;
+  const tenantId = await tenantIdOf(auth.session);
   const body = await req.json().catch(() => null);
   const name = String(body?.name ?? "").trim().slice(0, 60);
   const location = String(body?.location ?? "").trim().slice(0, 80);
@@ -38,9 +41,10 @@ export async function POST(req: Request) {
       sourceHost = `${parsed.hostname}:${parsed.port || "554"}`;
     } catch (e) { return problem(400, e instanceof Error ? e.message : "RTSP không hợp lệ"); }
   }
-  const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(cameras);
+  const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(cameras).where(eq(cameras.tenantId, tenantId));
   const thumbs = ["/cams/cam1.jpg", "/cams/cam2.jpg", "/cams/cam3.jpg", "/cams/cam4.jpg"];
   const [row] = await db.insert(cameras).values({
+    tenantId,
     code: `CAM-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
     name, location, sourceType, sourceCiphertext, sourceHost,
     thumbnail: sourceType === "demo" ? thumbs[c % 4] : null,
