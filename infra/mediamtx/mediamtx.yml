@@ -49,3 +49,9 @@ paths:
   # Path test/publisher nội bộ đang được ghi 24/7 (tương thích cấu hình cũ).
   cam:
     record: yes
+    # Trần số reader đồng thời. 0 (mặc định của MediaMTX) = không giới hạn:
+    # vài chục tab MJPEG là đủ đẩy CPU/upload lên trần và làm nghẽn mọi camera.
+    maxReaders: 10
+  # Mọi path khác (camera thật, path phát sinh) cũng có trần riêng.
+  all_others:
+    maxReaders: 16
