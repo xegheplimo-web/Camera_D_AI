@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Camera as CamIcon, Maximize2, ScanEye, Circle, Square, Star, NotebookPen, Video, VideoOff, ArrowLeftRight, Loader2, RefreshCw, Settings } from "lucide-react";
+import { Camera as CamIcon, Maximize2, Minimize2, ScanEye, Circle, Square, Star, NotebookPen, Video, VideoOff, ArrowLeftRight, Loader2, RefreshCw, Settings } from "lucide-react";
 import { api, drawToCanvas, uploadDataUrl, blobToDataUrl, getDetector } from "@/lib/client";
 import { streamBadge } from "@/lib/camera/status";
 import { vi } from "@/lib/labels";
@@ -52,6 +52,7 @@ export default function CameraView({ cam, compact = false, onEvent, onSettings }
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState<Date | null>(null);
   const [busy, setBusy] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const isWebcam = cam.sourceType === "webcam";
   const isRtsp = cam.sourceType === "rtsp";
@@ -83,6 +84,14 @@ export default function CameraView({ cam, compact = false, onEvent, onSettings }
     setNow(new Date());
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
+  }, []);
+
+  // Đồng bộ trạng thái toàn màn hình thật — kể cả khi người dùng thoát bằng ESC.
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(document.fullscreenElement === wrapRef.current);
+    onFsChange();
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
   const stopWebcam = useCallback(() => {
@@ -446,6 +455,11 @@ export default function CameraView({ cam, compact = false, onEvent, onSettings }
           <button onClick={() => wrapRef.current?.requestFullscreen?.()} className="rounded-lg bg-black/60 p-2 backdrop-blur hover:bg-cyan-600/60" aria-label="Phóng to" title="Toàn màn hình">
             <Maximize2 className="h-4 w-4" />
           </button>
+          {isFullscreen && (
+            <button onClick={() => document.exitFullscreen?.()} className="rounded-lg bg-black/60 p-2 backdrop-blur hover:bg-cyan-600/60" aria-label="Thoát toàn màn hình" title="Thoát toàn màn hình">
+              <Minimize2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
         {toast && <div className="anim-fadeup absolute left-1/2 top-14 -translate-x-1/2 rounded-xl bg-cyan-600/90 px-4 py-2 text-sm font-medium shadow-lg">{toast}</div>}
         {isWebcam && !live && (
