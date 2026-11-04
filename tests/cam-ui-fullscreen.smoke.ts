@@ -5,7 +5,7 @@ import { chromium } from "@playwright/test";
 import { randomBytes, scryptSync } from "node:crypto";
 import { ensureDefaultTenant } from "./helpers/tenant";
 import { db } from "../src/db";
-import { users } from "../src/db/schema";
+import { users, cameras } from "../src/db/schema";
 import { eq } from "drizzle-orm";
 
 const base = process.env.DAI_TEST_BASE_URL ?? "http://localhost:3000";
@@ -22,6 +22,7 @@ const password = randomBytes(16).toString("hex");
 const salt = randomBytes(16).toString("hex");
 const passwordHash = `scrypt$${salt}$${scryptSync(password, salt, 64).toString("hex")}`;
 let userId: number | undefined;
+let cameraId: number | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 
 async function main() {
@@ -30,6 +31,22 @@ async function main() {
     const [u] = await db.insert(users).values({ login: name, displayName: name, role: "owner", passwordHash }).returning();
     userId = u.id;
     check("tạo user owner tạm", Boolean(userId));
+
+    // CI không bật demo mode ⇒ DB không có camera ⇒ trang /camera trống và không
+    // render CameraView. Tự tạo 1 camera demo để smoke chạy được với DB sạch.
+    const [cam] = await db
+      .insert(cameras)
+      .values({
+        code: `CAM-${randomBytes(6).toString("hex")}`,
+        name: "Camera smoke fullscreen",
+        location: "Smoke",
+        sourceType: "demo",
+        status: "demo",
+        enabled: true,
+      })
+      .returning();
+    cameraId = cam.id;
+    check("tạo camera tạm", Boolean(cameraId));
   
     browser = await chromium.launch({ headless: true });
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -138,6 +155,7 @@ async function main() {
     check("script chạy không exception", false, (e as Error).message);
   } finally {
     try { if (browser) await browser.close(); } catch {}
+    try { if (cameraId) await db.delete(cameras).where(eq(cameras.id, cameraId)); } catch {}
     try { if (userId) await db.delete(users).where(eq(users.id, userId)); } catch {}
     console.log("\n=== KẾT QUẢ SMOKE FULLSCREEN ===");
     for (const r of results) console.log(r);
