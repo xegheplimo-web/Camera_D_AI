@@ -101,7 +101,7 @@ RED-first: `tests/h01-ci-contract.test.ts` — `missingSuites.length === 0`.
 
 ### P0-3 — Phân loại + kiểm chứng 12 route còn lại
 
-Sau khi trừ 3 route đã xác nhận đúng (`assets/[id]`, `cameras/[id]/stream`, `jobs/[id]`), 12 route còn lại phải phân loại tenant-owned / user-owned / global / stateless. `alerts` đã xử lý ở P0-1. `settings` là quyết định kiến trúc (N5): hoặc chấp nhận global settings và ghi rõ, hoặc thêm `tenant_id`.
+Đo lại tại HEAD `282a44e`: **55** `route.ts`; **24** không có `tenantIdOf/withTenant`; trong 24 đó **7** kiểm soát gián tiếp (`authorizeResource`/`getJob`/`extractionScope`/`thumbMap`/`tenantScope`) → **17 route chưa phân loại** (con số "12" trong bản trước là thiếu; "15 route" của GPT cũng không khớp phép đo). `alerts` và `settings` nằm trong 17 này và đã xác nhận leak → còn **15 route thực sự chưa biết**. Phải phân loại tenant-owned / user-owned / global / stateless. `settings` là quyết định kiến trúc (N5): hoặc chấp nhận global settings và ghi rõ, hoặc thêm `tenant_id`.
 
 ### P0-4 — H-01a: `app_rw` → đổi credential → RLS + `SET LOCAL`
 
