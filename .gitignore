@@ -13,3 +13,7 @@ agent_report.md
 artifacts/
 .devin/
 data/
+
+# agent logs and CDP scratch are local noise, not source
+agent_logs/
+.tmp-cdp/

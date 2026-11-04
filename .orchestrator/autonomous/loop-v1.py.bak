@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""Camera D-AI autonomous loop gate (deterministic, no LLM).
+
+Responsibilities (and ONLY these):
+  - honour the STOP flag
+  - enforce the daily step budget
+  - pick the next READY milestone (all prereqs done, lowest priority number)
+  - record transitions (todo -> doing -> done/blocked) with evidence
+
+The actual work is done by the Hermes agent turn that reads this output.
+Exit codes: 0 = a milestone is ready (instruction printed)
+            2 = nothing ready / stopped / budget reached (reason printed)
+"""
+from __future__ import annotations
+
+import json
+import sys
+from datetime import date
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+STATE = ROOT / "state.json"
+STOP = ROOT / "STOP"
+
+
+def load() -> dict:
+    return json.loads(STATE.read_text(encoding="utf-8"))
+
+
+def save(state: dict) -> None:
+    STATE.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def roll_day(state: dict) -> None:
+    today = date.today().isoformat()
+    if state.get("steps_today_date") != today:
+        state["steps_today_date"] = today
+        state["steps_today"] = 0
+
+
+def pick(state: dict) -> dict | None:
+    # resume an interrupted milestone first (agent died mid-run)
+    cur = state.get("current")
+    if cur:
+        for m in state["milestones"]:
+            if m["id"] == cur and m["status"] == "doing":
+                return m
+    by_id = {m["id"]: m for m in state["milestones"]}
+    ready = []
+    for m in state["milestones"]:
+        if m["status"] != "todo":
+            continue
+        if all(by_id.get(p, {}).get("status") == "done" for p in m.get("prereq", [])):
+            ready.append(m)
+    if not ready:
+        return None
+    ready.sort(key=lambda m: m["priority"])
+    return ready[0]
+
+
+def summary(state: dict) -> str:
+    counts: dict[str, int] = {}
+    for m in state["milestones"]:
+        counts[m["status"]] = counts.get(m["status"], 0) + 1
+    parts = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+    return f"cycle={state['cycle']} steps_today={state['steps_today']}/{state['max_steps_per_day']} [{parts}]"
+
+
+def cmd_next() -> int:
+    state = load()
+    roll_day(state)
+
+    if STOP.exists():
+        print("STOPPED: owner stop flag present at " + str(STOP))
+        save(state)
+        return 2
+
+    if state["steps_today"] >= state["max_steps_per_day"]:
+        print(f"BUDGET REACHED: {state['steps_today']}/{state['max_steps_per_day']} steps today")
+        save(state)
+        return 2
+
+    m = pick(state)
+    if m is None:
+        remaining = [x["id"] for x in state["milestones"] if x["status"] in ("todo", "doing", "blocked")]
+        if not remaining:
+            print("PROJECT COMPLETE: all milestones done. " + summary(state))
+        else:
+            print("NOTHING READY — unmet prerequisites or all remaining are blocked: " + ", ".join(remaining))
+        save(state)
+        return 2
+
+    resuming = m["id"] == state.get("current") and m["status"] == "doing"
+    if not resuming:
+        state["cycle"] += 1
+        state["steps_today"] += 1
+    state["current"] = m["id"]
+    m["status"] = "doing"
+    save(state)
+
+    print("=" * 70)
+    tag = "RESUME" if resuming else "NEXT MILESTONE"
+    print(f"{tag}: {m['id']}  ({summary(state)})")
+    print("=" * 70)
+    print(f"TITLE:    {m['title']}")
+    print(f"PREREQ:   {', '.join(m.get('prereq', [])) or 'none'}")
+    print(f"GATE:     {m['gate']}")
+    print(f"EVIDENCE: {m.get('evidence', '')}")
+    print()
+    print("DO EXACTLY ONE MILESTONE THIS TURN, THEN:")
+    print(f"  python {Path(__file__).name} --done {m['id']} --note '<verified evidence>'")
+    print(f"  python {Path(__file__).name} --block {m['id']} '<reason>'   # if genuinely blocked")
+    return 0
+
+
+def cmd_done(mid: str, note: str) -> int:
+    state = load()
+    for m in state["milestones"]:
+        if m["id"] == mid:
+            m["status"] = "done"
+            m["done_at"] = date.today().isoformat()
+            m["done_note"] = note
+            state["current"] = None
+            save(state)
+            print(f"OK {mid} -> done. {summary(state)}")
+            return 0
+    print(f"ERROR: unknown milestone {mid}")
+    return 1
+
+
+def cmd_block(mid: str, reason: str) -> int:
+    state = load()
+    for m in state["milestones"]:
+        if m["id"] == mid:
+            m["status"] = "blocked"
+            m["blocked_reason"] = reason
+            state["current"] = None
+            save(state)
+            print(f"OK {mid} -> blocked ({reason}). {summary(state)}")
+            return 0
+    print(f"ERROR: unknown milestone {mid}")
+    return 1
+
+
+def cmd_status() -> int:
+    state = load()
+    roll_day(state)
+    save(state)
+    print(summary(state))
+    for m in sorted(state["milestones"], key=lambda x: x["priority"]):
+        mark = {"done": "OK  ", "doing": ">>  ", "blocked": "!!  ", "todo": "    "}[m["status"]]
+        print(f"{mark}{m['id']:<4} {m['title'][:85]}")
+    if STOP.exists():
+        print("STOP FLAG PRESENT — loop is halted")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] == "next":
+        return cmd_next()
+    if argv[0] == "status":
+        return cmd_status()
+    if argv[0] == "--done" and len(argv) >= 2:
+        return cmd_done(argv[1], argv[2] if len(argv) > 2 else "")
+    if argv[0] == "--block" and len(argv) >= 3:
+        return cmd_block(argv[1], argv[2])
+    print(__doc__)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
