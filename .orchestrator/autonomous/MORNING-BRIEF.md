@@ -38,7 +38,7 @@ Các agent autonomous tự ghi thêm vào mục "Cần Sếp" khi gặp blocker 
 
 Trước đó: **M0** (khoá MediaMTX — anon RTSP 401, camera 796 frame 200) và **M4** (camera EZVIZ 796 online) đã xong.
 
-## P4 đang làm — "Ghi vào máy" (spec mới của Sếp, 03:00)
+## P4 XONG — "Ghi vào máy" (spec mới của Sếp, 03:00)
 
 Ba chức năng phải **tách bạch**, không gộp:
 
@@ -56,9 +56,17 @@ trực tiếp `MediaStream`. **Không** ghi đĩa bằng code, **không** đụn
 Kèm 2 việc Sếp nêu: camera mới thêm phải `recordEnabled: true` (schema đang mặc định
 `false`), và nút **Xem lại** phải có ngay trên camera ở trang chủ.
 
-Gate P4 đã đăng ký và đang **đỏ** (đúng): `test:p4` + kiểm module không dùng `fs`
-+ kiểm component có `captureStream`/`download` + kiểm API tạo camera bật ghi
-+ `test:t1336` vẫn xanh.
+Kết quả (commit `3ed39ee`): `test:p4` **8/8** (mime, tên file, start kép, stop
+không start, không data, auto-stop 10 phút). Và **smoke bấm thật trong Chromium**
+`test:p4:smoke` **10/10** — nhãn `Dừng và lưu (00:00) → (00:01) → (00:04)`, bấm Dừng
+thì trình duyệt nhận `camera-truoc-nha-ezviz_20261105-033155.webm` **có dữ liệu**,
+không lỗi JS. Gate P4 chạy **cả hai** + `test:t1336`, nên "đã làm" phải kèm bằng
+chứng bấm được, không chỉ unit test.
+
+Toàn bộ test của dự án: **44/44 PASS, 0 fail** (`scripts/local/run-all-tests.sh`,
+kết quả `agent_logs/all-tests-20261105-041021.txt`). Lưu ý cho lần sau: chạy suite
+trong lúc app thật đang phục vụ `:3000` thì phải để `SKIP_BUILD=1`, nếu không
+fixture tự `next build` đè `.next` và `test:h01` đỏ oan (đã có sẵn xử lý trong script).
 
 ## Hai lỗi hạ tầng phát hiện lúc 03:40–04:05 (đã sửa, có bằng chứng)
 
