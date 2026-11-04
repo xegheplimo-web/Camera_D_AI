@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { events } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { audit, problem } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
 import { authorizeResource } from "@/lib/scope";
@@ -23,7 +23,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!Object.keys(patch).length) return problem(400, "Không có thay đổi");
   const scoped = await authorizeResource(auth.session, "event", Number(id), "write");
   if (!scoped.ok) return scoped.response;
-  const [row] = await db.update(events).set(patch).where(eq(events.id, scoped.row.id)).returning();
+  const [row] = await db.update(events).set(patch).where(and(eq(events.id, scoped.row.id), eq(events.tenantId, scoped.row.tenantId))).returning();
   if (!row) return problem(404, "Không tìm thấy sự kiện");
   await audit("event.update", { targetType: "event", targetId: id, detail: JSON.stringify(patch).slice(0, 250) });
   return Response.json(row);
@@ -37,7 +37,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   if (u.searchParams.get("confirm") !== "yes") return problem(400, "Cần xác nhận xóa", "Thêm ?confirm=yes");
   const scoped = await authorizeResource(auth.session, "event", Number(id), "write");
   if (!scoped.ok) return scoped.response;
-  await db.delete(events).where(eq(events.id, scoped.row.id));
+  await db.delete(events).where(and(eq(events.id, scoped.row.id), eq(events.tenantId, scoped.row.tenantId)));
   await audit("event.delete", { targetType: "event", targetId: id });
   return Response.json({ ok: true });
 }

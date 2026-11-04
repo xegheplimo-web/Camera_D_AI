@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { alertRules, assets, cameras, events, extractions } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { audit, problem } from "@/lib/audit";
 import { authorize } from "@/lib/auth-server";
 import { authorizeResource } from "@/lib/scope";
@@ -50,7 +50,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const scoped = await authorizeResource(auth.session, "camera", id, "write");
   if (!scoped.ok) return scoped.response;
-  const [row] = await db.update(cameras).set(set).where(eq(cameras.id, id)).returning();
+  const [row] = await db.update(cameras).set(set).where(and(eq(cameras.id, id), eq(cameras.tenantId, scoped.row.tenantId))).returning();
   if (!row) return problem(404, "Không tìm thấy camera");
   await audit("camera.update", { targetType: "camera", targetId: id, detail: Object.entries(set).map(([k, v]) => `${k}=${v}`).join(", ") });
   return Response.json(publicCamera(row));
@@ -75,7 +75,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   if (!scoped.ok) return scoped.response;
   const cam = scoped.row;
 
-  const [{ c: eventCount }] = await db.select({ c: sql<number>`count(*)::int` }).from(events).where(eq(events.cameraId, id));
+  const [{ c: eventCount }] = await db.select({ c: sql<number>`count(*)::int` }).from(events).where(and(eq(events.cameraId, id), eq(events.tenantId, cam.tenantId)));
   const cascade = url.searchParams.get("cascade") === "yes";
   if (eventCount > 0 && !cascade) {
     return Response.json({ title: "Camera còn sự kiện liên kết", detail: `Còn ${eventCount} sự kiện — gọi lại với &cascade=yes để xoá kèm`, status: 409, events: eventCount }, { status: 409 });
@@ -103,12 +103,12 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
     if (eventCount > 0) {
       // extractions.asset_id NOT NULL nên giữ hàng — chỉ gỡ con trỏ event trước khi xoá events.
       await tx.update(extractions).set({ eventId: null })
-        .where(sql`${extractions.eventId} in (select id from events where camera_id = ${id})`);
-      await tx.delete(events).where(eq(events.cameraId, id));
+        .where(and(eq(extractions.tenantId, cam.tenantId), sql`${extractions.eventId} in (select id from events where camera_id = ${id} and tenant_id = ${cam.tenantId})`));
+      await tx.delete(events).where(and(eq(events.cameraId, id), eq(events.tenantId, cam.tenantId)));
     }
-    await tx.update(alertRules).set({ cameraId: null }).where(eq(alertRules.cameraId, id));
-    await tx.update(assets).set({ cameraId: null }).where(eq(assets.cameraId, id));
-    await tx.delete(cameras).where(eq(cameras.id, id));
+    await tx.update(alertRules).set({ cameraId: null }).where(and(eq(alertRules.cameraId, id), eq(alertRules.tenantId, cam.tenantId)));
+    await tx.update(assets).set({ cameraId: null }).where(and(eq(assets.cameraId, id), eq(assets.tenantId, cam.tenantId)));
+    await tx.delete(cameras).where(and(eq(cameras.id, id), eq(cameras.tenantId, cam.tenantId)));
   });
   await audit("camera.delete", {
     targetType: "camera",

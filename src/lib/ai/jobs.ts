@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { aiJobs, assets, extractions, messages, auditLog, sessions, users, type ExtractionResult } from "@/db/schema";
 import { and, asc, desc, eq, gt, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { assetReadScope, authorizeResource } from "@/lib/scope";
+import { tenantIdOf } from "@/lib/knowledge/tenant";
 import type { SessionPayload } from "@/lib/token";
 import { AiError, errorInfo, TERMINAL, type JobInput, type JobKind, type JobResult, type JobView, type Step, type ToolName } from "./types";
 import { requiredTools } from "./routing";
@@ -31,11 +32,12 @@ export async function enqueueJob(kind: JobKind, input: JobInput, session: Sessio
   const { asOf: _asOf, extractionId: _extractionId, ...identity } = input;
   void _asOf; void _extractionId;
   const inputHash = createHash("sha256").update(JSON.stringify({ kind, ...identity, draft })).digest("hex");
+  const tenantId = await tenantIdOf(session);
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(34215, ${session.sub})`);
     // Object-level check is re-verified at admission: an extract/index job may only read in-scope media.
     if (kind === "extract" || kind === "asset.index") {
-      const [asset] = await tx.select({ id: assets.id }).from(assets).where(and(eq(assets.id, input.assetId ?? -1), assetReadScope(session))).limit(1);
+      const [asset] = await tx.select({ id: assets.id }).from(assets).where(and(eq(assets.id, input.assetId ?? -1), assetReadScope(session, tenantId))).limit(1);
       if (!asset) throw new AiError("ASSET_NOT_FOUND", "Không tìm thấy ảnh gốc trong phạm vi được phép.", 404);
     }
     if (kind === "report") {
@@ -51,20 +53,20 @@ export async function enqueueJob(kind: JobKind, input: JobInput, session: Sessio
     if (count >= 8) throw new AiError("QUEUE_FULL", "Bạn đang có 8 tác vụ chờ/chạy. Hãy chờ hoàn tất hoặc hủy bớt.", 429);
     const savedInput = { ...input };
     if (kind === "extract" && draft) {
-      const [ex] = await tx.insert(extractions).values({ assetId: input.assetId!, title: draft.title, tags: draft.tags,
+      const [ex] = await tx.insert(extractions).values({ tenantId, assetId: input.assetId!, title: draft.title, tags: draft.tags,
         note: input.note!, roi: input.roi, taskType: input.taskType, productName: draft.productName, sku: draft.sku, priceVnd: draft.priceVnd, quantity: draft.quantity, status: "PROCESSING", source: draft.source,
         createdBy: session.name, userId: session.sub }).returning();
       savedInput.extractionId = ex.id;
     }
     const [job] = await tx.insert(aiJobs).values({
-      id: randomUUID(), userId: session.sub, sessionId: session.sid, requester: session.name,
+      id: randomUUID(), tenantId, userId: session.sub, sessionId: session.sid, requester: session.name,
       requesterDevice: session.device, kind, title: draft?.title ?? input.question ?? (kind === "asset.index" ? "Chỉ mục ảnh" : "Tác vụ AI"),
       input: savedInput, inputHash, idempotencyKey: key,
       route: kind === "asset.index" || (kind === "extract" && requiredTools(kind, input.note, input.taskType).length === 1) ? "worker" : "hermes",
       steps: [{ id: "gateway", worker: "Dịch vụ AI", label: "Xác thực, kiểm tra quyền và lưu yêu cầu", state: "succeeded" }],
     }).returning();
     if (kind === "report") {
-      await tx.insert(messages).values({ userId: session.sub, role: "user", text: input.question!, device: session.device,
+      await tx.insert(messages).values({ tenantId, userId: session.sub, role: "user", text: input.question!, device: session.device,
         inputMode: input.inputMode ?? "text", requestKey: key }).onConflictDoNothing();
     }
     await tx.insert(auditLog).values({ actor: session.name, actorRole: session.role, device: session.device,
@@ -225,7 +227,7 @@ export async function runJob(id: string) {
           .where(and(eq(extractions.id, job.input.extractionId), eq(extractions.status, "PROCESSING")));
       }
       if (result.answer) {
-        const [assistant] = await tx.insert(messages).values({ userId: job.userId, role: "assistant", text: result.answer.short, answer: result.answer, requestKey: job.idempotencyKey,
+        const [assistant] = await tx.insert(messages).values({ tenantId: job.tenantId, userId: job.userId, role: "assistant", text: result.answer.short, answer: result.answer, requestKey: job.idempotencyKey,
           device: job.requesterDevice, inputMode: job.input.inputMode ?? "text" })
           .onConflictDoUpdate({ target: [messages.userId, messages.requestKey, messages.role], set: { text: result.answer.short, answer: result.answer } }).returning();
         result.assistantId = assistant.id;
@@ -339,5 +341,8 @@ export async function dispatchJobs() {
 }
 
 export async function listJobs(session: SessionPayload, all = false) {
-  return db.select().from(aiJobs).where(all && session.role === "owner" ? undefined : eq(aiJobs.userId, session.sub)).orderBy(desc(aiJobs.createdAt)).limit(30);
+  const tenantId = await tenantIdOf(session);
+  return db.select().from(aiJobs)
+    .where(and(eq(aiJobs.tenantId, tenantId), all && session.role === "owner" ? undefined : eq(aiJobs.userId, session.sub)))
+    .orderBy(desc(aiJobs.createdAt)).limit(30);
 }
