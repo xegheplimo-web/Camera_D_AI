@@ -55,8 +55,19 @@ if [ "${1:-}" = "--verify" ]; then
     if [ "$A" = "$B" ]; then echo "      $t OK"; else echo "      $t MISMATCH"; FAIL=1; fi
   done
   docker exec "$CONTAINER" psql -U postgres -q -c "drop database app_db_restore_drill"
-  [ "$FAIL" = "0" ] || { echo "DIỄN TẬP RESTORE THẤT BẠI" >&2; exit 1; }
-  echo "DIỄN TẬP RESTORE PASS"
+  # Marker cho gate M8: chứng minh lần diễn tập GẦN NHẤT đã thật sự chạy và kết quả.
+  # Ghi cả khi thất bại — một marker "ok=false" là bằng chứng trung thực, còn thiếu
+  # marker nghĩa là chưa từng verify.
+  if [ "$FAIL" = "0" ]; then
+    printf '{"ok": true, "at": "%s", "dump": "%s", "tables": 9, "check": "md5(string_agg) per table"}\n' \
+      "$(date -Iseconds)" "$FILE" > "${DEST}/restore_verified.json"
+    echo "DIỄN TẬP RESTORE PASS"
+  else
+    printf '{"ok": false, "at": "%s", "dump": "%s", "check": "md5(string_agg) per table"}\n' \
+      "$(date -Iseconds)" "$FILE" > "${DEST}/restore_verified.json"
+    echo "DIỄN TẬP RESTORE THẤT BẠI" >&2
+    exit 1
+  fi
 else
   echo "[3/4] bỏ qua diễn tập (thêm --verify để chạy)"
   echo "[4/4] bỏ qua so khớp"
