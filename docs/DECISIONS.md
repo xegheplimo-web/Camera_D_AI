@@ -29,3 +29,25 @@
 
 ## D-006 — Giữ SOURCE_MANIFEST.sha256 làm provenance (2026-11-02)
 - Manifest hash của nguồn original v1.3 được giữ nguyên; các artifact log lịch sử bị .gitignore loại (repo sạch). Các file log demo cũ không commit.
+
+## D-007 — Từ chối roadmap do GPT đề xuất; giữ STOP GATE cho H-01 (2026-11-04)
+- Bối cảnh: GPT-5 (thread ngoài, 5m45s, 13.359 ký tự) phản biện brief H-01 và đề xuất roadmap 5 bước đặt CI plumbing lên bước 01.
+- Phán quyết GPT: C1 MODIFY, C2 MODIFY, C3 MODIFY, C4 KEEP, C5 KEEP, C6 MODIFY; giữ nguyên STOP GATE.
+- Hermes đối chiếu bằng phép đo trên HEAD `0c26575` và **bác bỏ hai điểm**:
+  - **C3 không thể hạ xuống MODIFY.** GPT cho rằng "chưa chứng minh credential runtime". Bằng chứng `.env:2` cho thấy app chạy bằng `postgres` **superuser** → nếu bật RLS ngay bây giờ, superuser bypass sạch. Vì vậy H-01a vẫn là P0 đầy đủ.
+  - **Thứ tự ưu tiên của GPT sai.** Đưa CI lên bước 01 trong khi `POST /api/alerts {all:true}` còn mass-update `ack_at` của mọi tenant là tối ưu hóa sai chỗ. Sửa leak đã xác nhận trước.
+- Điểm Hermes **tự nhận sai**: phương pháp grep `tenantIdOf` là sai. `assets/[id]:10`, `cameras/[id]/stream:12`, `jobs/[id]:21` đều kiểm soát tenant gián tiếp qua `authorizeResource`/`getJob` — không được sửa ba file đó.
+- Phương án loại: (a) theo nguyên roadmap GPT — CI trước, leak sau (rủi ro cross-tenant tồn tại thêm nhiều ngày); (b) đóng H-01 thành DONE vì #58 đã merge — sai, verification incomplete.
+- Kết luận: STOP GATE giữ nguyên. H-01 = **STOP / NOT ACCEPTED**.
+
+## D-008 — Áp dụng roadmap ưu tiên theo rủi ro (Hermes, 2026-11-04)
+- Thứ tự chốt theo mức phơi nhiễm thực tế, không theo mức độ dễ của công cụ:
+  1. **P0-1** Vá leak `/api/alerts` (cross-tenant READ + mass WRITE + IDOR) — một file, rủi ro thấp, phơi nhiễm cao.
+  2. **P0-2** Đưa 5 suite H-01 vào CI + sửa lỗi harness `BUILD_ID` (`h01d-read-paths.test.ts:98–102` có thể chạy trên artifact cũ → false-PASS).
+  3. **P0-3** Phân loại + kiểm chứng 12 route còn lại (sau khi trừ 3 route đã xác nhận đúng).
+  4. **P0-4** H-01a theo đúng thứ tự: tạo `app_rw` → đổi `DATABASE_URL` → bật RLS + `SET LOCAL`. Đảo thứ tự tạo cảm giác an toàn giả.
+  5. **P1-5** Audit attribution khi login + test H-01e chuyên dụng.
+- Nguyên tắc RED-first: RED phải chứng minh hợp đồng/hành vi chưa đạt. Với chức năng đã đúng, không dựng lỗi giả — dùng **mutation test** để chứng minh assertion bắt được regression.
+- Điều kiện duy nhất để chuyển ACCEPTED: đúng SHA + runtime không bypass RLS + ma trận tenant A/B trên mọi tenant-owned path + regression tests thực thi trong CI + RED/GREEN evidence + acceptance doc khớp kết quả.
+- Phương án loại: đánh dấu DONE từ trạng thái "PR đã merge" — đúng lỗi mà H-01 đang phải sửa.
+- Bằng chứng chi tiết: `docs/H01_REBUTTAL_AND_PRIORITY_2026-11-04.md`; phản biện gốc: `docs/discussions/GPT-REVIEW-H01-2026-11-04.md`.
