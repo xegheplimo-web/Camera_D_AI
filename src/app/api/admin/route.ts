@@ -17,13 +17,23 @@ export async function GET() {
   await ensureSeed();
   // Tenant resolve phía server từ users.tenant_id (T-1333) — client không tự khai báo.
   const tenantId = await tenantIdOf(auth.session);
-  // audit_log không có cột tenant_id: chỉ trả entry do user của tenant này tạo
-  // (actor = displayName). Fail-closed — hàng không quy được tenant (vd actor
-  // 'system' của retention) bị ẩn khỏi mọi tenant.
+  // audit_log.tenant_id (H-01g): lọc cứng theo tenant — actor/display_name không
+  // còn là biên vì hai tenant có thể trùng tên. Fail-closed: hàng tenant_id NULL
+  // (legacy/system) vẫn ẩn khỏi mọi tenant.
   const logs = await db
-    .select()
+    .select({
+      id: auditLog.id,
+      actor: auditLog.actor,
+      actorRole: auditLog.actorRole,
+      action: auditLog.action,
+      targetType: auditLog.targetType,
+      targetId: auditLog.targetId,
+      device: auditLog.device,
+      detail: auditLog.detail,
+      createdAt: auditLog.createdAt,
+    })
     .from(auditLog)
-    .where(sql`${auditLog.actor} in (select ${users.displayName} from ${users} where ${users.tenantId} = ${tenantId})`)
+    .where(eq(auditLog.tenantId, tenantId))
     .orderBy(desc(auditLog.id))
     .limit(60);
   const [d] = await db
@@ -96,6 +106,7 @@ export async function POST(req: Request) {
       if (demoAssets.length) await tx.delete(assets).where(inArray(assets.id, demoAssets.map((a) => a.id)));
       const report: PurgeReport = { extractions: delEx.length, events: delEv.length, assets: demoAssets.length, assetsKept: tot.c - demoAssets.length, assetsKeptByKnowledge: keptKn.c, bytes, pendingFiles };
       await tx.insert(auditLog).values({
+        tenantId,
         actor: auth.session.name,
         actorRole: auth.session.role,
         device: auth.session.device,
@@ -112,7 +123,7 @@ export async function POST(req: Request) {
   if (action === "clear_demo") {
     await db.delete(events).where(and(eq(events.source, "demo"), eq(events.tenantId, tenantId)));
     await db.delete(extractions).where(and(eq(extractions.source, "demo"), eq(extractions.tenantId, tenantId)));
-    await audit("data.clear_demo", { targetType: "events", detail: `tenant=${tenantId}` });
+    await audit("data.clear_demo", { targetType: "events", detail: `tenant=${tenantId}`, tenantId });
     return Response.json({ ok: true });
   }
   if (action === "reset_all") {
@@ -122,7 +133,7 @@ export async function POST(req: Request) {
     await db.delete(messages).where(eq(messages.tenantId, tenantId));
     await db.delete(assets).where(eq(assets.tenantId, tenantId));
     await db.delete(cameras).where(eq(cameras.tenantId, tenantId));
-    await audit("data.reset_all", { targetType: "all", detail: `tenant=${tenantId}` });
+    await audit("data.reset_all", { targetType: "all", detail: `tenant=${tenantId}`, tenantId });
     // reseed() ghi topology demo vào tenant mặc định + xoá marker app_settings toàn cục;
     // chỉ tenant 1 mới được gọi — tenant khác reset xong thì trống thật.
     const demoReseeded = tenantId === 1 ? await reseed() : false;
@@ -133,7 +144,7 @@ export async function POST(req: Request) {
       .update(sessions)
       .set({ revokedAt: new Date() })
       .where(and(sql`${sessions.id} <> ${auth.session.sid}`, sql`${sessions.userId} in (select ${users.id} from ${users} where ${users.tenantId} = ${tenantId})`));
-    await audit("auth.revoke_other_sessions", { detail: `tenant=${tenantId}` });
+    await audit("auth.revoke_other_sessions", { detail: `tenant=${tenantId}`, tenantId });
     return Response.json({ ok: true });
   }
   return Response.json({ title: "Thao tác không hợp lệ", status: 400 }, { status: 400 });

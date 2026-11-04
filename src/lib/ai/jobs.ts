@@ -69,7 +69,7 @@ export async function enqueueJob(kind: JobKind, input: JobInput, session: Sessio
       await tx.insert(messages).values({ tenantId, userId: session.sub, role: "user", text: input.question!, device: session.device,
         inputMode: input.inputMode ?? "text", requestKey: key }).onConflictDoNothing();
     }
-    await tx.insert(auditLog).values({ actor: session.name, actorRole: session.role, device: session.device,
+    await tx.insert(auditLog).values({ tenantId, actor: session.name, actorRole: session.role, device: session.device,
       action: "ai.job.queued", targetType: "job", targetId: job.id, detail: kind });
     return { job, duplicate: false };
   });
@@ -234,7 +234,7 @@ export async function runJob(id: string) {
       }
       await tx.update(aiJobs).set({ state: finalState, result, steps, progress: 100, route, finishedAt: new Date(), updatedAt: new Date(), leaseUntil: null,
         errorCode: partial ? "PARTIAL_RESULT" : null, error: partial ? fallbackReason ?? failures.join(" ") : null }).where(running);
-      await tx.insert(auditLog).values({ actor: job.requester, device: job.requesterDevice, action: `ai.job.${finalState}`, targetType: "job", targetId: job.id, detail: `${route}; ${Date.now() - started}ms` });
+      await tx.insert(auditLog).values({ tenantId: job.tenantId, actor: job.requester, device: job.requesterDevice, action: `ai.job.${finalState}`, targetType: "job", targetId: job.id, detail: `${route}; ${Date.now() - started}ms` });
     });
   } catch (e) {
     await writeChain.catch(() => {});
@@ -289,7 +289,7 @@ async function indexAsset(job: JobRow, requester: SessionPayload, ctx: IndexCtx)
         rawResult: extraction, result: extraction, source: image.demo ? "demo" : "live",
         createdBy: job.requester, userId: job.userId }).returning({ id: extractions.id });
       await tx.update(aiJobs).set({ state: "succeeded", result: { extractionId: ex.id }, steps: ctx.steps, progress: 100, route: "worker", finishedAt: new Date(), updatedAt: new Date(), leaseUntil: null }).where(ctx.running);
-      await tx.insert(auditLog).values({ actor: job.requester, device: job.requesterDevice, action: "ai.job.succeeded", targetType: "job", targetId: job.id, detail: `index; ${Date.now() - ctx.started}ms` });
+      await tx.insert(auditLog).values({ tenantId: job.tenantId, actor: job.requester, device: job.requesterDevice, action: "ai.job.succeeded", targetType: "job", targetId: job.id, detail: `index; ${Date.now() - ctx.started}ms` });
     });
   } catch (e) {
     if (ctx.signal.aborted) throw e;
@@ -302,7 +302,7 @@ async function indexAsset(job: JobRow, requester: SessionPayload, ctx: IndexCtx)
         leaseUntil: new Date(Date.now() + 2_000 * 2 ** (job.attempts - 1)), updatedAt: new Date() }).where(ctx.running);
     } else {
       await db.update(aiJobs).set({ state: "failed", steps: ctx.steps, route: "worker", errorCode: info.code, error: info.message, leaseUntil: null, finishedAt: new Date(), updatedAt: new Date() }).where(ctx.running);
-      await db.insert(auditLog).values({ actor: job.requester, device: job.requesterDevice, action: "ai.job.failed", targetType: "job", targetId: job.id, detail: `index; ${info.code}` });
+      await db.insert(auditLog).values({ tenantId: job.tenantId, actor: job.requester, device: job.requesterDevice, action: "ai.job.failed", targetType: "job", targetId: job.id, detail: `index; ${info.code}` });
     }
   }
 }
@@ -326,7 +326,7 @@ export async function changeJob(job: JobRow, action: "cancel" | "retry", actor: 
       }
       await tx.update(aiJobs).set({ state: "queued", progress: 0, result: null, steps: [], error: null, errorCode: null, leaseUntil: null, runToken: null, finishedAt: null, updatedAt: new Date() }).where(eq(aiJobs.id, current.id));
     }
-    await tx.insert(auditLog).values({ actor: actor.name, actorRole: actor.role, device: actor.device, action: `ai.job.${action}`, targetType: "job", targetId: current.id });
+    await tx.insert(auditLog).values({ tenantId: job.tenantId, actor: actor.name, actorRole: actor.role, device: actor.device, action: `ai.job.${action}`, targetType: "job", targetId: current.id });
   });
   if (action === "cancel") controllers.get(job.id)?.abort();
 }

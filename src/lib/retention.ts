@@ -31,7 +31,7 @@ import { localAssetPath } from "@/lib/camera/detector";
 import { runVideoRetention } from "@/lib/recordings";
 
 export type DbExecutor = Pick<typeof db, "select" | "insert" | "update" | "delete" | "execute">;
-export type AuditActor = { name?: string | null; role?: string | null; device?: string | null };
+export type AuditActor = { name?: string | null; role?: string | null; device?: string | null; tenantId?: number | null };
 
 /** Mốc thời gian cắt: bản ghi cũ hơn now - days ngày bị xem là hết hạn. */
 export function retentionCutoff(now: Date, days: number): Date {
@@ -127,6 +127,7 @@ export async function runRetention(executor: DbExecutor = db): Promise<Retention
     pendingFiles,
   };
   await executor.insert(auditLog).values({
+    tenantId: null, // retention chạy toàn cục — không quy về tenant nào
     actor: "system",
     action: "data.retention",
     targetType: "events|extractions|assets",
@@ -178,6 +179,7 @@ export async function purgeDemoData(executor: DbExecutor = db, actor: AuditActor
 
   const report: PurgeReport = { extractions: delEx.length, events: delEv.length, assets: demoAssets.length, assetsKept: tot.c - demoAssets.length, assetsKeptByKnowledge: keptKn.c, bytes, pendingFiles };
   await executor.insert(auditLog).values({
+    tenantId: actor.tenantId ?? null,
     actor: actor.name ?? null,
     actorRole: actor.role ?? null,
     device: actor.device ?? null,

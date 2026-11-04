@@ -21,9 +21,10 @@ export type RouteRecord = {
   jobId?: string;
 };
 
-export async function recordRoute(rec: RouteRecord, actor?: { name?: string; role?: string; device?: string }) {
+export async function recordRoute(rec: RouteRecord, actor?: { name?: string; role?: string; device?: string; tenantId?: number | null }) {
   try {
     await db.insert(auditLog).values({
+      tenantId: actor?.tenantId ?? null,
       actor: actor?.name ?? null,
       actorRole: actor?.role ?? null,
       device: actor?.device ?? null,

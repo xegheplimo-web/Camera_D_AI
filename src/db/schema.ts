@@ -269,17 +269,22 @@ export const alertRules = pgTable("alert_rules", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const auditLog = pgTable("audit_log", {
-  id: serial("id").primaryKey(),
-  actor: text("actor"),
-  actorRole: text("actor_role"),
-  action: text("action").notNull(),
-  targetType: text("target_type"),
-  targetId: text("target_id"),
-  device: text("device"),
-  detail: text("detail"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id"), // H-01g: nullable — log legacy/system không quy được tenant
+    actor: text("actor"),
+    actorRole: text("actor_role"),
+    action: text("action").notNull(),
+    targetType: text("target_type"),
+    targetId: text("target_id"),
+    device: text("device"),
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("audit_log_tenant_idx").on(t.tenantId, t.id.desc())]
+);
 
 /* ---------------- T-1335: camera settings + knowledge base ---------------- */
 
