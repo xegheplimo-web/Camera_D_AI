@@ -1,12 +1,15 @@
 import { db } from "@/db";
 import { auditLog } from "@/db/schema";
 import { currentSession } from "./auth-server";
+import { tenantIdOf } from "@/lib/knowledge/tenant";
 
 /** Audit identity always comes from the verified session, never from the request body. */
-export async function audit(action: string, meta: { targetType?: string; targetId?: string | number | null; detail?: string } = {}) {
+export async function audit(action: string, meta: { targetType?: string; targetId?: string | number | null; detail?: string; tenantId?: number | null } = {}) {
   try {
     const s = await currentSession();
+    const tenantId = meta.tenantId !== undefined ? meta.tenantId : s ? await tenantIdOf(s).catch(() => null) : null;
     await db.insert(auditLog).values({
+      tenantId,
       actor: s?.name ?? null,
       actorRole: s?.role ?? null,
       action,

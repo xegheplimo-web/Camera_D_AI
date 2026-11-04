@@ -219,6 +219,8 @@ export type PurgeOptions = {
   cameraKey?: string;
   now?: Date;
   actor?: AuditActor;
+  /** Tenant sở hữu thư mục bản ghi (theo camera); không có context ⇒ null. */
+  tenantId?: number | null;
   executor?: AuditExecutor;
   /** "skip-empty" = không ghi audit khi deleted=0 (job nền chạy hằng ngày). */
   audit?: "always" | "skip-empty";
@@ -253,6 +255,7 @@ export async function purgeOldSegments(retentionDays: number, opts: PurgeOptions
   }
   if (result.deleted > 0 || opts.audit !== "skip-empty") {
     await (opts.executor ?? db).insert(auditLog).values({
+      tenantId: opts.tenantId ?? null,
       actor: opts.actor?.name ?? "system",
       actorRole: opts.actor?.role ?? null,
       device: opts.actor?.device ?? null,
@@ -288,20 +291,25 @@ export async function runVideoRetention(): Promise<VideoRetentionReport> {
       sourceCiphertext: cameras.sourceCiphertext,
       camDays: cameras.retentionDays,
       setDays: cameraSettings.retentionDays,
+      tenantId: cameras.tenantId,
     })
     .from(cameras)
     .leftJoin(cameraSettings, eq(cameraSettings.cameraId, cameras.id));
   const daysByKey = new Map<string, number>();
+  const tenantByKey = new Map<string, number>();
   for (const r of rows) {
     const days = r.setDays ?? (r.camDays && r.camDays > 0 ? r.camDays : globalDays);
-    for (const k of recordingKeysFor(r)) daysByKey.set(k, days);
+    for (const k of recordingKeysFor(r)) {
+      daysByKey.set(k, days);
+      tenantByKey.set(k, r.tenantId);
+    }
   }
   const report: VideoRetentionReport = { deleted: 0, bytes: 0, dirs: 0 };
   if (globalDays <= 0) return report; // retention tắt ⇒ không xoá gì
   for (const key of await dirKeys(recordingsDir())) {
     const days = daysByKey.get(key) ?? globalDays;
     if (days <= 0) continue;
-    const r = await purgeOldSegments(days, { cameraKey: key, actor: { name: "system" }, audit: "skip-empty" });
+    const r = await purgeOldSegments(days, { cameraKey: key, actor: { name: "system" }, tenantId: tenantByKey.get(key) ?? null, audit: "skip-empty" });
     report.deleted += r.deleted;
     report.bytes += r.bytes;
     if (r.deleted) report.dirs++;
