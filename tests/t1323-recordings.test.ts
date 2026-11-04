@@ -38,13 +38,26 @@ const password = randomBytes(24).toString("hex");
 const recDir = mkdtempSync(join(tmpdir(), "dai-t1323-rec-"));
 
 // Tên segment theo đúng format mediaMTX %Y-%m-%d_%H-%M-%S-%f (giờ địa phương).
-const SEGFRESH = "2026-11-01_10-00-00-000000.mp4"; // ~2 ngày trước
-const SEGOLD = "2026-09-15_08-30-00-000000.mp4";   // ~7 tuần trước
-const SEGZERO = "2026-11-01_11-00-00-000000.mp4";  // file 0 byte
-const SEGOTHER = "2026-09-01_00-00-00-000000.mp4"; // dir không map camera nào
-const SEGC_OLD = "2026-08-01_00-00-00-000000.mp4";   // camC: override qua cameras.retention_days=2
-const SEGC_FRESH = "2026-11-02_09-00-00-000000.mp4"; // camC: ~1 ngày → giữ
-const PURGE_OLD = "2020-01-01_00-00-00-000000.mp4";
+// Sinh TƯƠNG ĐỐI theo lúc chạy test: fixture hardcode ngày sẽ "hết hạn" khi CI
+// chạy muộn hơn, khiến retention xoá nhầm segment "fresh" và test fail theo lịch.
+const pad2 = (n: number) => String(n).padStart(2, "0");
+function segDate(daysAgo: number, hour: number, minute: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  d.setHours(hour, minute, 0, 0);
+  return d;
+}
+function segName(daysAgo: number, hour: number, minute: number): string {
+  const d = segDate(daysAgo, hour, minute);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}_${pad2(hour)}-${pad2(minute)}-00-000000.mp4`;
+}
+const SEGFRESH = segName(3, 10, 0);   // 3 ngày trước → trong 30 ngày, quá hạn 1 ngày của camA
+const SEGOLD = segName(50, 8, 30);    // ~7 tuần trước → ngoài 30 ngày, trong 90 ngày
+const SEGZERO = segName(3, 11, 0);    // file 0 byte, cùng ngày SEGFRESH
+const SEGOTHER = segName(60, 0, 0);   // ~2 tháng trước, dir không map camera → global 365 giữ
+const SEGC_OLD = segName(100, 0, 0);  // ~3 tháng trước, camC retention 2 ngày → xoá
+const SEGC_FRESH = segName(1, 9, 0);  // ~1 ngày trước, camC 2 ngày → giữ
+const PURGE_OLD = "2020-01-01_00-00-00-000000.mp4"; // mốc cố định rất cũ, luôn quá hạn
 
 // Thân SEGFRESH mô phỏng MP4 thật (box ftyp + mdat + payload > 1024B) để test
 // Range kiểm tra được đầu file "ftyp" — Chrome yêu cầu đúng format này.
@@ -313,7 +326,7 @@ test("API: GET danh sách segment + storage; 401 không phiên, 400/404 sai tham
 /* ================= 5. API GET /api/recordings/play ================= */
 
 test("API: play — stream file segment trên đĩa: 200 nguyên file, Range thật 206 + ftyp, 416, download", async () => {
-  const startIso = new Date(2026, 10, 1, 10, 0, 0).toISOString(); // khớp SEGFRESH
+  const startIso = segDate(3, 10, 0).toISOString(); // khớp SEGFRESH
   const url = `/api/recordings/play?cameraId=${camA}&start=${encodeURIComponent(startIso)}`;
 
   const r = await call(`${url}&duration=60`, "GET", undefined, owner());
@@ -324,7 +337,7 @@ test("API: play — stream file segment trên đĩa: 200 nguyên file, Range th�
 
   // Mốc nằm giữa hai segment → server chọn segment có start ≤ mốc gần nhất.
   const between = await call(
-    `/api/recordings/play?cameraId=${camA}&start=${encodeURIComponent(new Date(2026, 10, 1, 9, 0, 0).toISOString())}`,
+    `/api/recordings/play?cameraId=${camA}&start=${encodeURIComponent(segDate(3, 9, 0).toISOString())}`,
     "GET", undefined, owner(), { Range: "bytes=0-4" });
   assert.equal(between.status, 206);
   assert.equal(between.data.raw, "OLD-B", "mốc 9h thuộc SEGOLD 8h30 → phải đọc SEGOLD");
@@ -389,7 +402,7 @@ test("unit: runVideoRetention — camera_settings.retention_days override; dir l
   try {
     const rep = await runVideoRetention();
     assert.ok(rep.deleted >= 3, `camA (2 file, override settings=1d) + camC (1 file, fallback cameras=2d) — ${JSON.stringify(rep)}`);
-    assert.equal(existsSync(join(recDir, keyA(), SEGFRESH)), false, "camA giữ 1 ngày → segment 2 ngày bị xoá");
+    assert.equal(existsSync(join(recDir, keyA(), SEGFRESH)), false, "camA giữ 1 ngày → segment 3 ngày bị xoá");
     assert.equal(existsSync(join(recDir, keyA(), SEGZERO)), false, "file 0 byte quá hạn cũng bị dọn");
     assert.equal(existsSync(join(recDir, `dai_cam_${camC}`, SEGC_OLD)), false, "camC không có settings → cameras.retention_days=2 xoá segment ~3 tháng");
     assert.equal(existsSync(join(recDir, `dai_cam_${camC}`, SEGC_FRESH)), true, "camC segment ~1 ngày còn trong hạn 2 ngày");

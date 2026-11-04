@@ -125,11 +125,11 @@ export default function CameraPage() {
   const maxB = Math.max(1, ...buckets.map((b) => b.items.length));
 
   return (
-    <div className="grid gap-4 xl:grid-cols-12">
-      <div className="space-y-3 xl:col-span-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold">Camera & Quan sát</h1>
-          <select value={camId ?? ""} onChange={(e) => selectCam(Number(e.target.value))} className="input w-auto" aria-label="Chọn camera">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-12">
+      <div className="min-w-0 space-y-3 xl:col-span-8">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <h1 className="shrink-0 text-xl font-bold">Camera & Quan sát</h1>
+          <select value={camId ?? ""} onChange={(e) => selectCam(Number(e.target.value))} className="input w-auto min-w-0 max-w-[60%] truncate" aria-label="Chọn camera">
             {cams.map((c) => <option key={c.id} value={c.id}>{c.name} – {c.location}</option>)}
           </select>
         </div>

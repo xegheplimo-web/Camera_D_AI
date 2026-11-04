@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, ImagePlus, Loader2, Plus, Save, Sparkles, Trash2, X } from "lucide-react";
-import { api } from "@/lib/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, Film, ImagePlus, Loader2, Plus, Save, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { api, blobToDataUrl, fileToDataUrl, uploadDataUrl } from "@/lib/client";
 import { Badge } from "./ui";
 import type { Cam } from "./CameraView";
 
@@ -58,6 +58,11 @@ const flagsOf = (f: Record<string, unknown> | undefined): Record<FlagKey, boolea
   pricing: f?.pricing === true,
 });
 
+const UPLOAD_MAX = 25 * 1024 * 1024;
+const UPLOAD_MIMES = new Set(["image/jpeg", "image/png", "image/webp", "video/webm", "video/mp4"]);
+const ACCEPT_UPLOAD = [...UPLOAD_MIMES].join(",");
+const fmtSize = (n: number) => (n >= 1024 * 1024 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
 const zoneLabel = (z: Record<string, unknown>, i: number, fallback: string) => {
   const n = z.name ?? z.label ?? z.title;
   return typeof n === "string" && n.trim() ? n : `${fallback} ${i + 1}`;
@@ -110,6 +115,14 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
   const [imgDrafts, setImgDrafts] = useState<Record<number, string>>({});
   const [confirmDel, setConfirmDel] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [upFile, setUpFile] = useState<File | null>(null);
+  const [upPreview, setUpPreview] = useState<string | null>(null);
+  const [upNote, setUpNote] = useState("");
+  const [upPrice, setUpPrice] = useState("");
+  const [upErr, setUpErr] = useState<string | null>(null);
+  const [upBusy, setUpBusy] = useState(false);
+  const [pendingVids, setPendingVids] = useState<{ itemId: number; assetId: number; name: string; size: number; note: string | null }[]>([]);
+  const upInputRef = useRef<HTMLInputElement>(null);
 
   const flash = (t: string) => {
     setToast(t);
@@ -146,6 +159,12 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
     setImgDrafts({});
     setConfirmDel(false);
     setShowPicker(false);
+    setUpFile(null);
+    setUpPreview(null);
+    setUpNote("");
+    setUpPrice("");
+    setUpErr(null);
+    setPendingVids([]);
     void load();
   }, [cam.id, load]);
 
@@ -154,6 +173,9 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
+
+  // Object-URL của ảnh xem trước: thu hồi khi đổi/huỷ tệp và khi drawer unmount.
+  useEffect(() => () => { if (upPreview) URL.revokeObjectURL(upPreview); }, [upPreview]);
 
   /** PATCH kèm revision; 409 → nạp bản mới từ server, không ghi đè. Caller giữ cờ `saving`. */
   const patchSettings = async (fields: Record<string, unknown>): Promise<boolean> => {
@@ -235,6 +257,7 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
     setImgDrafts({});
     setConfirmDel(false);
     setShowPicker(false);
+    resetUpload();
   };
 
   const openItem = async (id: number) => {
@@ -390,6 +413,96 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
       flash(e instanceof Error ? e.message : "Không gỡ được ảnh");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const resetUpload = () => {
+    if (upPreview) URL.revokeObjectURL(upPreview);
+    setUpPreview(null);
+    setUpFile(null);
+    setUpNote("");
+    setUpPrice("");
+    setUpErr(null);
+    if (upInputRef.current) upInputRef.current.value = "";
+  };
+
+  const pickFile = (f: File | null) => {
+    resetUpload();
+    if (!f) return;
+    if (!UPLOAD_MIMES.has(f.type)) {
+      setUpErr("Định dạng không hỗ trợ — chỉ nhận JPEG, PNG, WEBP hoặc video WEBM/MP4.");
+      return;
+    }
+    if (f.size > UPLOAD_MAX) {
+      setUpErr(`Tệp quá lớn (${fmtSize(f.size)}) — tối đa 25 MB.`);
+      return;
+    }
+    setUpFile(f);
+    if (f.type.startsWith("image/")) setUpPreview(URL.createObjectURL(f));
+  };
+
+  /** Lỗi tải tệp → tiếng Việt rõ ràng: mất mạng, hết phiên, thiếu quyền; còn lại giữ thông điệp server. */
+  const uploadErrText = (e: unknown): string => {
+    const m = e instanceof Error ? e.message : "";
+    if (e instanceof TypeError || /failed to fetch|net::ERR|load failed/i.test(m)) return "Mất kết nối mạng — kiểm tra mạng rồi thử lại.";
+    if (/\b401\b|hết hiệu lực/i.test(m)) return "Phiên đăng nhập đã hết hạn — hãy đăng nhập lại.";
+    if (/\b403\b|không đủ quyền/i.test(m)) return "Tài khoản không có quyền tải tệp lên.";
+    return m || "Không lưu được tệp";
+  };
+
+  const saveUpload = async () => {
+    if (!detail || !upFile || upBusy || saving) return;
+    const isVideo = upFile.type.startsWith("video/");
+    const note = upNote.trim() || null;
+    let price: number | null = null;
+    if (!isVideo && upPrice.trim()) {
+      const n = Number(upPrice.trim());
+      if (!Number.isSafeInteger(n) || n < 0) {
+        setUpErr("Giá không hợp lệ — nhập số nguyên ≥ 0 (VND).");
+        return;
+      }
+      price = n;
+    }
+    setUpBusy(true);
+    setUpErr(null);
+    try {
+      const extra: { origin: string; cameraId: number; width?: number; height?: number } = { origin: "upload", cameraId: cam.id };
+      let dataUrl: string;
+      if (isVideo) dataUrl = await blobToDataUrl(upFile);
+      else {
+        const c = await fileToDataUrl(upFile);
+        dataUrl = c.dataUrl;
+        extra.width = c.width;
+        extra.height = c.height;
+      }
+      const a = await uploadDataUrl(dataUrl, extra);
+      if (isVideo) {
+        // Phía máy chủ hiện chỉ nhận gắn ảnh vào mục — video nằm sẵn trong kho
+        // của camera, hiển thị "Chờ xử lý" tới khi hệ thống gắn/lập chỉ mục được.
+        const attached = await api(`/api/knowledge/items/${detail.id}/images`, { method: "POST", json: { assetId: a.id, note } })
+          .then(() => true)
+          .catch(() => false);
+        if (attached) {
+          await openItem(detail.id);
+          flash("Đã lưu video");
+        } else {
+          setPendingVids((v) => [{ itemId: detail.id, assetId: a.id, name: upFile.name, size: upFile.size, note }, ...v]);
+          flash("Đã lưu video · Chờ xử lý");
+        }
+      } else {
+        await api(`/api/knowledge/items/${detail.id}/images`, { method: "POST", json: { assetId: a.id, note } });
+        if (price !== null && price !== detail.priceVnd)
+          await api(`/api/knowledge/items/${detail.id}/price`, { method: "POST", json: { priceVnd: price } });
+        // Như attach-from-event: gắn ảnh xong cho AI học ngay (idempotent).
+        const r = await api<{ encoded: number }>(`/api/products/${detail.id}/embed`, { method: "POST" }).catch(() => null);
+        await openItem(detail.id);
+        flash(r && r.encoded > 0 ? "Đã lưu và cho AI học" : "Đã lưu");
+      }
+      resetUpload();
+    } catch (e) {
+      setUpErr(uploadErrText(e));
+    } finally {
+      setUpBusy(false);
     }
   };
 
@@ -573,6 +686,87 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
                   <button onClick={() => setShowPicker((v) => !v)} disabled={saving} className="btn btn-ghost px-2 py-1 text-[11px]">
                     <ImagePlus className="h-3.5 w-3.5" /> Thêm ảnh từ sự kiện
                   </button>
+                </div>
+                <div className="mb-2 rounded-lg border border-cyan-400/20 p-2" data-upload>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-semibold text-slate-300">Tải ảnh/video lên</span>
+                    <label className="btn btn-ghost cursor-pointer px-2 py-1 text-[11px]">
+                      <Upload className="h-3.5 w-3.5" /> Chọn tệp…
+                      <input
+                        ref={upInputRef}
+                        type="file"
+                        accept={ACCEPT_UPLOAD}
+                        aria-label="Chọn tệp ảnh hoặc video"
+                        data-upload-input
+                        disabled={upBusy}
+                        className="sr-only"
+                        onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+                      />
+                    </label>
+                  </div>
+                  {upFile ? (
+                    <div className="mt-2 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        {upFile.type.startsWith("video/") ? (
+                          <span className="flex h-16 w-24 shrink-0 items-center justify-center rounded-md bg-white/5" title={upFile.name}>
+                            <Film className="h-6 w-6 text-slate-400" />
+                          </span>
+                        ) : upPreview?.startsWith("blob:") ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={upPreview} alt="Ảnh xem trước" className="h-16 w-24 shrink-0 rounded-md object-cover" />
+                        ) : (
+                          <span className="flex h-16 w-24 shrink-0 items-center justify-center rounded-md bg-white/5 text-[10px] text-slate-500">
+                            Không xem trước được
+                          </span>
+                        )}
+                        <div className="min-w-0 text-[11px] text-slate-400">
+                          <div className="truncate font-medium text-slate-200">{upFile.name}</div>
+                          <div>{fmtSize(upFile.size)}{upFile.type.startsWith("video/") ? " · chờ xử lý — AI chưa học video" : ""}</div>
+                        </div>
+                      </div>
+                      <textarea
+                        value={upNote}
+                        onChange={(e) => setUpNote(e.target.value)}
+                        rows={2}
+                        maxLength={500}
+                        placeholder="Ghi chú riêng cho tệp này…"
+                        aria-label="Ghi chú tệp tải lên"
+                        data-upload-note
+                        className="input py-1 text-xs"
+                      />
+                      {!upFile.type.startsWith("video/") && (
+                        <input
+                          value={upPrice}
+                          onChange={(e) => setUpPrice(e.target.value.replace(/\D/g, ""))}
+                          inputMode="numeric"
+                          maxLength={15}
+                          placeholder="Giá VND (tuỳ chọn)"
+                          aria-label="Giá VND cho mục"
+                          data-upload-price
+                          className="input py-1 text-xs"
+                        />
+                      )}
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => void saveUpload()} disabled={upBusy || saving} data-upload-save className="btn btn-primary px-2 py-1 text-[11px]">
+                          {upBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Lưu vào trí nhớ AI
+                        </button>
+                        <button onClick={resetUpload} disabled={upBusy} className="btn btn-ghost px-2 py-1 text-[11px]">Huỷ</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-1.5 text-[11px] text-slate-400">JPEG, PNG, WEBP hoặc video WEBM/MP4 · tối đa 25 MB.</p>
+                  )}
+                  {upErr && <p data-upload-error className="mt-1.5 rounded-md border border-rose-400/40 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-100">{upErr}</p>}
+                  {pendingVids.filter((v) => v.itemId === detail.id).map((v) => (
+                    <div key={v.assetId} data-pending-video={v.assetId} className="mt-1.5 flex items-center gap-2 rounded-md border border-white/10 px-2 py-1.5">
+                      <Film className="h-4 w-4 shrink-0 text-slate-400" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[11px] font-medium text-slate-200">{v.name} · {fmtSize(v.size)}</div>
+                        {v.note && <div className="truncate text-[11px] text-slate-400">{v.note}</div>}
+                      </div>
+                      <Badge color="amber">Chờ xử lý</Badge>
+                    </div>
+                  ))}
                 </div>
                 {showPicker && (
                   <div className="mb-2 rounded-lg border border-cyan-400/20 p-2">
