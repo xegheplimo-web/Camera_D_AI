@@ -1,0 +1,51 @@
+# MediaMTX 1.21.x — cấu hình CHẠY THẬT của Camera D-AI (M0: khoá auth + chỉ ghi path hợp lệ).
+#
+# File này KHÔNG chứa mật khẩu. Danh sách user để trống và được nạp từ biến môi
+# trường MTX_AUTHINTERNALUSERS_<i>_* do infra/mediamtx/start-mediamtx.ps1 dựng từ
+# file secret ngoài repo (mặc định %USERPROFILE%\.camdai\mediamtx.env).
+# Khai báo `authInternalUsers: []` là CÓ CHỦ Ý: nếu bỏ trống khoá này, mediaMTX sẽ
+# merge với 2 user `any` mặc định của nó (publish/read/playback + api localhost),
+# tức là mở lại đúng lỗ hổng đang vá.
+logLevel: warn
+logDestinations: [stdout]
+
+authMethod: internal
+authInternalUsers: []
+
+# Control API chỉ nghe loopback. App (src/lib/camera/recorder.ts, health.ts) gọi
+# không kèm credential nên cần user `any` pass rỗng CHỈ với quyền api và CHỈ từ
+# 127.0.0.1 — user này không đọc/ghi/playback được và không tới được từ LAN.
+api: yes
+apiAddress: 127.0.0.1:9997
+metrics: no
+
+rtsp: true
+rtspTransports: [tcp]
+rtspEncryption: "no"
+rtspAddress: :8554
+
+# Chỉ bật giao thức đang dùng; tắt phần còn lại để không chiếm/đụng cổng mặc định
+# (1935 RTMP, 8888/8889 HLS, 8892 MoQ — đã gặp bind error trên máy host).
+rtmp: no
+hls: no
+webrtc: no
+srt: no
+moq: no
+
+playback: yes
+playbackAddress: 127.0.0.1:9996
+
+# Mặc định KHÔNG ghi hình. Chỉ path nào được khai báo dưới `paths` (hoặc được
+# control-plane bật record tường minh) mới ghi — tránh path lạ tự sinh file rác.
+pathDefaults:
+  record: no
+  recordPath: F:/Camera-D-AI/runtime/recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordSegmentDuration: 5m
+  recordPartDuration: 1s
+  recordDeleteAfter: 168h
+
+paths:
+  # Path test/publisher nội bộ đang được ghi 24/7 (tương thích cấu hình cũ).
+  cam:
+    record: yes
