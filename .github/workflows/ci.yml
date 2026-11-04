@@ -86,8 +86,8 @@ jobs:
             "select setval(pg_get_serial_sequence('tenants','id'), greatest(1, (select coalesce(max(id),1) from tenants)));"
       - name: Build (Next.js)
         run: npm run build
-      # H-01 tenant isolation: GET/POST/PUT /api/alerts phải scoped theo tenant (5 đường).
-      # SKIP_BUILD=1 vì job này đã build ngay trên; suite tự spawn `next start` ở port riêng.
+      # H-01 tenant isolation: /api/alerts (5 đường) + /api/settings PATCH (platform-global config).
+      # SKIP_BUILD=1 vì job này đã build ngay trên; mỗi suite tự spawn `next start` ở port riêng.
       - name: H-01 tenant isolation suites
         run: npm run test:h01
         env:

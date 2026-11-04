@@ -4,6 +4,7 @@ import { serviceStatus } from "@/lib/ai/services";
 import { audit } from "@/lib/audit";
 import { aiProblem, readJson } from "@/lib/ai/http";
 import { AiError } from "@/lib/ai/types";
+import { PLATFORM_TENANT_ID, tenantIdOf } from "@/lib/knowledge/tenant";
 
 export const dynamic = "force-dynamic";
 export async function GET() {
@@ -18,6 +19,14 @@ export async function PATCH(req: Request) {
   const auth = await authorize("manage");
   if (auth.response) return auth.response;
   try {
+    // P0-1b (H-01): app_settings là bảng toàn cục — không có tenant_id. Ghi ở đây
+    // thay đổi hành vi của MỌI tenant (demoMode, retentionDays, remoteProcessingAllowed…),
+    // nên chỉ tenant nền tảng được phép. Tenant khác fail-closed 403 và bị audit.
+    const tenantId = await tenantIdOf(auth.session);
+    if (tenantId !== PLATFORM_TENANT_ID) {
+      await audit("settings.update.denied", { targetType: "settings", detail: `tenant=${tenantId}` });
+      throw new AiError("PLATFORM_ONLY", "Cấu hình nền tảng chỉ tenant nền tảng được thay đổi.", 403);
+    }
     const body = await readJson(req);
     const keys: (keyof Settings)[] = ["demoMode", "retentionDays", "remotePlayback", "requireVerifiedForAnswers", "hermesEnabled", "remoteProcessingAllowed", "detectEnabled"];
     const changes: [keyof Settings, unknown][] = [];

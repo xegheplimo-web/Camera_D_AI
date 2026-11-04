@@ -91,7 +91,11 @@ Phải quyết định rõ quyền sở hữu trước khi sửa:
 
 Không được đồng nhất "owner của một tenant" với "administrator của toàn nền tảng".
 
-RED-first: `tests/h01-settings-tenant.test.ts` — owner tenant B PATCH → 403 (global) hoặc chỉ ảnh hưởng hàng của tenant B (local); `getSettings(tenant B)` không trả giá trị do tenant A đặt.
+**QUYẾT ĐỊNH ĐÃ CHỐT (2026-11-04) — nhánh platform-global:**
+`app_settings` giữ nguyên là bảng toàn cục (không thêm `tenant_id`); `PATCH /api/settings` chỉ tenant nền tảng (`PLATFORM_TENANT_ID = 1`) được ghi. Tenant khác fail-closed `403 PLATFORM_ONLY` và ghi audit `settings.update.denied`. Lý do: (a) đây là containment P0, thêm cột + migration + scoped reads là thay đổi kiến trúc lớn hơn nhiều; (b) `demoMode`/`retentionDays`/`remoteProcessingAllowed` là chính sách vận hành của nền tảng, không phải dữ liệu nghiệp vụ của tenant; (c) tenant-local settings vẫn là hướng mở rộng hợp lệ sau này, theo dõi riêng.
+GET vẫn cho mọi tenant đọc cấu hình hiệu lực (SECURITY_MAP xếp settings vào nhóm `shared`); `hermesEnabled` vẫn ẩn với non-owner như trước. Ghi chú follow-up: UI nên ẩn form settings với non-platform tenant, và cân nhắc redact `hermesEnabled` khỏi owner của tenant khác.
+
+RED-first: `tests/h01-settings-tenant.test.ts` — owner tenant B PATCH → 403; owner tenant nền tảng PATCH → 200 (positive control) + DB thực sự đổi. Kết quả: RED 1/2 trên code cũ (tenant B nhận 200) → GREEN 2/2 sau vá.
 
 ### P0-2 — Đưa 5 suite H-01 vào CI + `test:h01` (theo GPT bước 01)
 
