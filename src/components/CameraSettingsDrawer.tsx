@@ -711,9 +711,13 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
                           <span className="flex h-16 w-24 shrink-0 items-center justify-center rounded-md bg-white/5" title={upFile.name}>
                             <Film className="h-6 w-6 text-slate-400" />
                           </span>
-                        ) : (
+                        ) : upPreview?.startsWith("blob:") ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={upPreview!} alt="Ảnh xem trước" className="h-16 w-24 shrink-0 rounded-md object-cover" />
+                          <img src={upPreview} alt="Ảnh xem trước" className="h-16 w-24 shrink-0 rounded-md object-cover" />
+                        ) : (
+                          <span className="flex h-16 w-24 shrink-0 items-center justify-center rounded-md bg-white/5 text-[10px] text-slate-500">
+                            Không xem trước được
+                          </span>
                         )}
                         <div className="min-w-0 text-[11px] text-slate-400">
                           <div className="truncate font-medium text-slate-200">{upFile.name}</div>
