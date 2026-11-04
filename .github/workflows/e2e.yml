@@ -59,6 +59,8 @@ jobs:
           curl -sf -o /dev/null http://localhost:3000/login || (echo "server failed to start"; tail -50 server.log; exit 1)
       - name: Browser smoke (isolated operator login, responsive, chat gateway, memory, upload)
         run: npx tsx tests/browser-smoke.ts
+      - name: CAM-UI-001 fullscreen smoke - toggle 1 nut, bam lai de thoat, ESC dong bo bieu tuong
+        run: npx tsx tests/cam-ui-fullscreen.smoke.ts
       - name: Upload evidence on failure
         if: always()
         uses: actions/upload-artifact@v7

@@ -8,6 +8,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:camera": "node --import tsx --test tests/camera-product.unit.test.ts",
+    "test:cam-ui-001": "tsx tests/cam-ui-fullscreen.smoke.ts",
     "test:ai": "node --import tsx --test tests/ai-unit.test.ts tests/ai-integration.test.ts tests/detector.test.ts",
     "test:ai-timeout": "node --import tsx --test tests/ai-timeout.test.ts",
     "test:vision-boxes": "node --import tsx --test tests/vision-boxes.test.ts",

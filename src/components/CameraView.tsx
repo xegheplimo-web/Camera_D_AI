@@ -94,6 +94,20 @@ export default function CameraView({ cam, compact = false, onEvent, onSettings }
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
+  // Một nút duy nhất: bấm lại đúng nút đó thì thu nhỏ (trước đây chỉ có
+  // requestFullscreen() nên bấm lại là no-op, buộc người dùng phải bấm Esc).
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement === wrapRef.current) {
+        await document.exitFullscreen?.();
+      } else {
+        await wrapRef.current?.requestFullscreen?.();
+      }
+    } catch (error) {
+      console.error("Fullscreen failed:", error);
+    }
+  }, []);
+
   const stopWebcam = useCallback(() => {
     if (retryTimer.current) clearTimeout(retryTimer.current);
     retryTimer.current = null;
@@ -452,14 +466,16 @@ export default function CameraView({ cam, compact = false, onEvent, onSettings }
               <Settings className="h-4 w-4" />
             </button>
           )}
-          <button onClick={() => wrapRef.current?.requestFullscreen?.()} className="rounded-lg bg-black/60 p-2 backdrop-blur hover:bg-cyan-600/60" aria-label="Phóng to" title="Toàn màn hình">
-            <Maximize2 className="h-4 w-4" />
+          <button
+            type="button"
+            data-fs-toggle
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? "Thu nhỏ" : "Phóng to"}
+            title={isFullscreen ? "Thoát toàn màn hình" : "Toàn màn hình"}
+            className="rounded-lg bg-black/60 p-2 backdrop-blur hover:bg-cyan-600/60"
+          >
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
-          {isFullscreen && (
-            <button onClick={() => document.exitFullscreen?.()} className="rounded-lg bg-black/60 p-2 backdrop-blur hover:bg-cyan-600/60" aria-label="Thoát toàn màn hình" title="Thoát toàn màn hình">
-              <Minimize2 className="h-4 w-4" />
-            </button>
-          )}
         </div>
         {toast && <div className="anim-fadeup absolute left-1/2 top-14 -translate-x-1/2 rounded-xl bg-cyan-600/90 px-4 py-2 text-sm font-medium shadow-lg">{toast}</div>}
         {isWebcam && !live && (
