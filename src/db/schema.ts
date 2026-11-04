@@ -335,6 +335,27 @@ export const knowledgeItems = pgTable(
   ]
 );
 
+/**
+ * P2: gắn sản phẩm (knowledge_items) vào NHIỀU camera — chủ cửa hàng chủ động
+ * thiết lập dùng chung. Link là dữ liệu của camera: xoá camera/item cascade,
+ * tắt feature `product` TUYỆT ĐỐI không xoá hàng ở đây.
+ */
+export const cameraProducts = pgTable(
+  "camera_products",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "restrict" }),
+    cameraId: integer("camera_id").notNull().references(() => cameras.id, { onDelete: "cascade" }),
+    itemId: bigint("item_id", { mode: "number" }).notNull().references(() => knowledgeItems.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    uniqueIndex("camera_products_cam_item_uniq").on(t.cameraId, t.itemId),
+    index("camera_products_tenant_cam_idx").on(t.tenantId, t.cameraId),
+  ]
+);
+
 /** Ảnh gắn vào mục — mỗi ảnh một ghi chú riêng; cùng asset ở nhiều item là hợp lệ (không dedup làm mất liên kết). */
 export const knowledgeImages = pgTable(
   "knowledge_images",

@@ -28,6 +28,7 @@ type CamSettings = {
 };
 
 type KItem = { id: number; title: string; sku: string | null; note: string | null; priceVnd: number | null; createdAt: string };
+type CamProduct = { linkId: number; itemId: number; title: string; sku: string | null; priceVnd: number | null; note: string | null; linkedAt: string };
 type KImage = { id: number; assetId: number; note: string | null; position: number; shareToLibrary?: boolean };
 type TeachState = { images: number; embedded: number; ready: boolean };
 type KDetail = KItem & { images: KImage[]; priceHistory: { id: number; priceVnd: number; effectiveFrom: string }[] };
@@ -82,6 +83,9 @@ function Switch({ label, checked, disabled, onChange }: { label: string; checked
 export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: Cam; onClose: () => void; onSaved?: () => void }) {
   const [s, setS] = useState<CamSettings | null>(null);
   const [items, setItems] = useState<KItem[] | null>(null);
+  const [camProducts, setCamProducts] = useState<CamProduct[] | null>(null);
+  const [catalog, setCatalog] = useState<KItem[] | null>(null);
+  const [showProdPicker, setShowProdPicker] = useState(false);
   const [picker, setPicker] = useState<EvThumb[] | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -118,13 +122,15 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
   const load = useCallback(async () => {
     setLoadErr(null);
     try {
-      const [st, it, ev] = await Promise.all([
+      const [st, it, cp, ev] = await Promise.all([
         api<CamSettings>(`/api/cameras/${cam.id}/settings`),
         api<KItem[]>(`/api/knowledge/items?cameraId=${cam.id}`),
+        api<CamProduct[]>(`/api/cameras/${cam.id}/products`),
         api<{ items: EvThumb[] }>(`/api/events?camera=${cam.id}&limit=30`),
       ]);
       setS(st);
       setItems(it);
+      setCamProducts(cp);
       const seen = new Set<number>();
       setPicker(ev.items.filter((e) => e.assetId && e.thumb && !seen.has(e.assetId) && (seen.add(e.assetId), true)));
     } catch (e) {
@@ -135,6 +141,9 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
   useEffect(() => {
     setS(null);
     setItems(null);
+    setCamProducts(null);
+    setCatalog(null);
+    setShowProdPicker(false);
     setDetail(null);
     setNameD(null);
     setLocD(null);
@@ -272,6 +281,49 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
       flash("Đã thêm mục");
     } catch (e) {
       flash(e instanceof Error ? e.message : "Không thêm được mục");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // P2: link n-n sản phẩm ↔ camera — gắn từ danh mục tenant, gỡ chỉ huỷ link (item gốc còn nguyên).
+  const reloadProducts = async () => setCamProducts(await api<CamProduct[]>(`/api/cameras/${cam.id}/products`));
+
+  const toggleProdPicker = async () => {
+    if (!showProdPicker && catalog === null) {
+      try {
+        setCatalog(await api<KItem[]>("/api/knowledge/items"));
+      } catch (e) {
+        flash(e instanceof Error ? e.message : "Không tải được danh mục");
+        return;
+      }
+    }
+    setShowProdPicker((v) => !v);
+  };
+
+  const linkProduct = async (itemId: number) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await api(`/api/cameras/${cam.id}/products`, { method: "POST", json: { itemId } });
+      await reloadProducts();
+      flash("Đã gắn sản phẩm vào camera");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Không gắn được sản phẩm");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const unlinkProduct = async (itemId: number) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await api(`/api/cameras/${cam.id}/products?itemId=${itemId}`, { method: "DELETE" });
+      await reloadProducts();
+      flash("Đã gỡ sản phẩm khỏi camera");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Không gỡ được sản phẩm");
     } finally {
       setSaving(false);
     }
@@ -502,6 +554,7 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
   const recReason = s?.capabilities?.reason?.record;
   const hasAudio = recReady && s?.capabilities?.audio === true;
   const attachedAssets = new Set((detail?.images ?? []).map((im) => im.assetId));
+  const linkedItemIds = new Set((camProducts ?? []).map((p) => p.itemId));
   const fmtVnd = (v: number | null) => (v === null ? null : `${v.toLocaleString("vi-VN")} ₫`);
 
   return (
@@ -610,6 +663,47 @@ export default function CameraSettingsDrawer({ cam, onClose, onSaved }: { cam: C
         <Section title="Ảnh & ghi chú">
           {!detail ? (
             <div className="space-y-2">
+              <div className="rounded-lg border border-cyan-400/20 p-2" data-camera-products>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-300">Sản phẩm của camera này{camProducts ? ` (${camProducts.length})` : ""}</span>
+                  <button onClick={() => void toggleProdPicker()} disabled={saving} data-product-picker-toggle className="btn btn-ghost px-2 py-1 text-[11px]">
+                    <Plus className="h-3.5 w-3.5" /> Gắn sản phẩm
+                  </button>
+                </div>
+                {showProdPicker && (
+                  <div className="mt-2 rounded-lg border border-white/10 p-2" data-product-picker>
+                    <p className="mb-1.5 text-[11px] text-slate-400">Chọn từ danh mục của cửa hàng — một sản phẩm gắn được vào nhiều camera:</p>
+                    <div className="max-h-40 space-y-0.5 overflow-y-auto">
+                      {(catalog ?? []).filter((c) => !linkedItemIds.has(c.id)).map((c) => (
+                        <button key={c.id} data-pick={c.id} onClick={() => void linkProduct(c.id)} disabled={saving} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-white/5">
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-medium">{c.title}</span>
+                            <span className="block truncate text-[11px] text-slate-400">{[c.sku, fmtVnd(c.priceVnd)].filter(Boolean).join(" · ") || "—"}</span>
+                          </span>
+                          <Plus className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                        </button>
+                      ))}
+                      {catalog !== null && !catalog.some((c) => !linkedItemIds.has(c.id)) && <p className="py-1 text-[11px] text-slate-400">Không còn sản phẩm nào để gắn.</p>}
+                      {catalog === null && <p className="py-1 text-[11px] text-slate-400"><Loader2 className="inline h-3 w-3 animate-spin" /> Đang tải danh mục…</p>}
+                    </div>
+                  </div>
+                )}
+                <div className="mt-2 space-y-1">
+                  {camProducts?.map((p) => (
+                    <div key={p.linkId} data-link={p.linkId} className="flex items-center gap-2 rounded-md border border-white/10 px-2 py-1.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-medium">{p.title}</div>
+                        <div className="truncate text-[11px] text-slate-400">{[p.sku, fmtVnd(p.priceVnd)].filter(Boolean).join(" · ") || "—"}</div>
+                      </div>
+                      <button onClick={() => void unlinkProduct(p.itemId)} disabled={saving} aria-label={`Gỡ ${p.title} khỏi camera`} title="Gỡ khỏi camera" className="btn btn-ghost shrink-0 px-1.5 py-1 text-[11px]">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {camProducts && !camProducts.length && <p className="text-[11px] text-slate-400">Chưa gắn sản phẩm nào — bấm &quot;Gắn sản phẩm&quot; để chọn từ danh mục.</p>}
+                  {camProducts === null && <p className="text-[11px] text-slate-400"><Loader2 className="inline h-3 w-3 animate-spin" /> Đang tải…</p>}
+                </div>
+              </div>
               <div className="flex gap-2">
                 <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} maxLength={200} placeholder="Tiêu đề mục" aria-label="Tiêu đề mục" className="input" />
               </div>
