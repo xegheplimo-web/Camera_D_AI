@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Sparkles, Search, Filter, Loader2, X, CalendarDays, StickyNote, ListTree } from "lucide-react";
+import { Sparkles, Search, Filter, Loader2, X, CalendarDays, StickyNote, ListTree, CopyCheck } from "lucide-react";
 import { api } from "@/lib/client";
 import { waitForJob } from "@/lib/ai/client";
 import type { JobView } from "@/lib/ai/types";
@@ -143,6 +143,9 @@ export default function MemoryClient() {
           <button onClick={() => setTab("events")} className={`flex items-center gap-1 rounded-lg px-3 py-1 ${tab === "events" ? "bg-cyan-500/25 text-white" : "text-slate-400"}`}><ListTree className="h-4 w-4" /> Dòng thời gian</button>
           <button onClick={() => setTab("notes")} className={`flex items-center gap-1 rounded-lg px-3 py-1 ${tab === "notes" ? "bg-cyan-500/25 text-white" : "text-slate-400"}`}><StickyNote className="h-4 w-4" /> Ghi chú trích xuất</button>
         </div>
+        <Link href="/knowledge/duplicates" className="ml-auto flex items-center gap-1 rounded-xl border border-white/10 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:bg-white/5">
+          <CopyCheck className="h-4 w-4" /> Rà soát trùng →
+        </Link>
       </div>
 
       <form onSubmit={runSmart} className="glass-strong flex items-center gap-2 rounded-2xl p-2">

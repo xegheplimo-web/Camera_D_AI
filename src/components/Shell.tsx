@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { Home, Video, ScanText, Brain, MessageCircle, BarChart3, Settings, Bell, User, Power, LogOut, ShieldAlert, Phone } from "lucide-react";
+import { Home, Video, ScanText, Brain, CopyCheck, MessageCircle, BarChart3, Settings, Bell, User, Power, LogOut, ShieldAlert, Phone } from "lucide-react";
 import Robot, { MOOD_LABEL } from "./Robot";
 import VoiceCallDialog from "./VoiceCallDialog";
 import { useApp } from "./AppState";
@@ -14,6 +14,7 @@ const NAV = [
   { href: "/camera", label: "Camera & Quan sát", icon: Video },
   { href: "/extract", label: "Ảnh & Trích xuất", icon: ScanText },
   { href: "/memory", label: "Trí nhớ", icon: Brain },
+  { href: "/knowledge/duplicates", label: "Rà soát trùng", icon: CopyCheck },
   { href: "/alerts", label: "Cảnh báo", icon: ShieldAlert },
   { href: "/chat", label: "Hỏi đáp AI", icon: MessageCircle },
   { href: "/stats", label: "Thống kê", icon: BarChart3 },
