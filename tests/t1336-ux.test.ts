@@ -79,6 +79,16 @@ async function stubCapabilities(camId: number, capabilities: Record<string, unkn
   return () => page.unroute(url, handler);
 }
 
+/**
+ * P1: danh mục mục trong drawer do cờ tính năng per-camera quyết định. Ca render
+ * nào cần đủ mục thì phải khai báo cờ tường minh — camera mới chỉ bật `watch`
+ * + `record`, nên mục "Ảnh & ghi chú" sẽ không có nếu không bật `product`.
+ */
+const FLAGS_ON = {
+  watch: true, record: true, motion: true, intrusion: false, product: true,
+  stock: false, delivery: false, people: false, vehicle: false,
+};
+
 before(async () => {
   // Fixture cần production build cho `next start` — build một lần nếu chưa có.
   if (!existsSync(".next/BUILD_ID")) {
@@ -176,6 +186,11 @@ test("drawer mở tại chỗ đủ 5 mục đúng thứ tự; Lưu video/Tính 
   const unroute = await stubCapabilities(camA, {
     live: true, playback: false, record: false, snapshot: true, ask: true, pricing: false,
     reason: { record: "Chưa cấu hình ghi hình", pricing: "Chưa có nhận diện sản phẩm" },
+  }, {
+    featureFlags: FLAGS_ON,
+    // Mục "Lưu trữ & cảnh báo" chỉ render khi camera thật sự bật ghi hình
+    // (`feat.record` lấy từ cột record_enabled, không phải khoá features).
+    recordEnabled: true,
   });
   try {
     await openDrawer(camA);
@@ -184,7 +199,12 @@ test("drawer mở tại chỗ đủ 5 mục đúng thứ tự; Lưu video/Tính 
     assert.ok(await page.evaluate(([x, y]) => x === y, [frameEl, frameEl2]), "phần tử stream không bị thay thế khi mở drawer");
 
     const sections = await dlg().locator("section").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
-    assert.deepEqual(sections, ["Thông tin & vị trí", "Tính năng AI", "Ảnh & ghi chú", "Khu vực & quy tắc", "Lưu trữ & cảnh báo"]);
+    // P1: thêm mục "Tính năng camera" (bật/tắt tính năng của riêng camera này);
+    // "Ảnh & ghi chú" chỉ có mặt vì FLAGS_ON bật `product`.
+    assert.deepEqual(sections, [
+      "Thông tin & vị trí", "Tính năng AI", "Tính năng camera",
+      "Ảnh & ghi chú", "Khu vực & quy tắc", "Lưu trữ & cảnh báo",
+    ]);
 
     for (const key of ["playback", "record", "pricing"]) {
       const row = aiSection().locator(`[data-feature="${key}"]`);
@@ -201,6 +221,39 @@ test("drawer mở tại chỗ đủ 5 mục đúng thứ tự; Lưu video/Tính 
   } finally {
     await closeDrawer();
     await unroute();
+  }
+});
+
+/* ============ 2c. Tắt tính năng ⇒ mục của nó biến mất (spec per-camera) ============ */
+
+test("tắt `product` ⇒ không còn mục 'Ảnh & ghi chú'; bật lại ⇒ mục trở lại", async () => {
+  const unroute = await stubCapabilities(
+    camA,
+    { live: true, playback: true, record: true, snapshot: true, ask: true, pricing: false },
+    { featureFlags: { ...FLAGS_ON, product: false } },
+  );
+  try {
+    await openDrawer(camA);
+    const labels = await dlg().locator("section").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+    assert.ok(!labels.includes("Ảnh & ghi chú"), `product tắt ⇒ không được có mục ảnh; nhận ${JSON.stringify(labels)}`);
+    assert.ok(labels.includes("Tính năng camera"), "mục bật/tắt tính năng luôn phải có");
+  } finally {
+    await closeDrawer();
+    await unroute();
+  }
+
+  const on = await stubCapabilities(
+    camA,
+    { live: true, playback: true, record: true, snapshot: true, ask: true, pricing: false },
+    { featureFlags: FLAGS_ON },
+  );
+  try {
+    await openDrawer(camA);
+    const labels = await dlg().locator("section").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+    assert.ok(labels.includes("Ảnh & ghi chú"), `product bật ⇒ phải có mục ảnh; nhận ${JSON.stringify(labels)}`);
+  } finally {
+    await closeDrawer();
+    await on();
   }
 });
 
@@ -287,6 +340,12 @@ test("PATCH revision cũ → UI hiện 'Cài đặt đã thay đổi ở nơi kh
 /* ============ 5. Ghi chú từng ảnh qua UI ============ */
 
 test("gắn 2 ảnh cùng mục, sửa note 1 ảnh, ảnh kia giữ nguyên", async () => {
+  // Mục "Ảnh & ghi chú" chỉ render khi camera bật tính năng hàng hoá (P1).
+  const unroute = await stubCapabilities(
+    camA,
+    { live: true, playback: true, record: true, snapshot: true, ask: true, pricing: false },
+    { featureFlags: FLAGS_ON },
+  );
   await openDrawer(camA);
   const sec = dlg().locator('section[aria-label="Ảnh & ghi chú"]');
   await sec.locator('input[aria-label="Tiêu đề mục"]').fill(`${prefix} mục UX`);
@@ -323,6 +382,7 @@ test("gắn 2 ảnh cùng mục, sửa note 1 ảnh, ảnh kia giữ nguyên", a
   const byAsset = new Map<number, string | null>((g.data.images as { assetId: number; note: string | null }[]).map((im) => [im.assetId, im.note]));
   assert.equal(byAsset.get(a1), "ghi chú ảnh một");
   assert.equal(byAsset.get(a2), null, "ghi chú ảnh kia giữ nguyên");
+  await unroute();
 });
 
 /* ============ 6. UI không có chuỗi nội bộ ============ */
