@@ -1,4 +1,5 @@
-# REAL-001 - local camera stack controller: go2rtc + mediaMTX + ffmpeg publisher.
+# REAL-001 - local camera stack controller: go2rtc + mediaMTX + ffmpeg publisher
+#   + Next.js app (:3000).
 #   powershell -NoProfile -File scripts/local/stack.ps1 start|stop|status
 # Idempotent: start probes ports/checks pidfiles first; stop kills ONLY processes
 # this script spawned or whose CommandLine matches runtime markers.
@@ -18,6 +19,7 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "..\..")).Path
+$repoRootFwd = $repoRoot -replace '\\', '/'
 if (-not $RuntimeDir) { $RuntimeDir = (Resolve-Path (Join-Path $repoRoot "..\..\runtime")).Path }
 $pidDir = Join-Path $RuntimeDir "pids"
 $logDir = Join-Path $RuntimeDir "logs"
@@ -43,12 +45,14 @@ function Get-ProcInfo([int]$ProcId) {
 }
 function Find-ManagedProcs {
     # Processes belonging to this stack, by CommandLine marker (runtime dir,
-    # publisher script, or our ffmpeg RTSP publisher target).
+    # publisher script, our ffmpeg RTSP publisher target, or this repo's app).
     Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
         $_.CommandLine -and (
             $_.CommandLine.Contains("$RuntimeDir") -or
             $_.CommandLine.Contains("rtsp-publisher.ps1") -or
-            ($_.Name -eq "ffmpeg.exe" -and $_.CommandLine.Contains(":8554/cam"))
+            ($_.Name -eq "ffmpeg.exe" -and $_.CommandLine.Contains(":8554/cam")) -or
+            ($_.CommandLine.Contains("node_modules/next/dist/bin/next") -and
+             $_.CommandLine.Contains("$repoRootFwd"))
         )
     }
 }
@@ -107,6 +111,27 @@ function Wait-HttpOk([string]$Url, [int]$TimeoutSec) {
     } while ((Get-Date) -lt $deadline)
     return $false
 }
+function Import-DotEnv([string]$Path, [hashtable]$Owned) {
+    # Load KEY=VALUE lines into THIS process env so children inherit them.
+    # Later files override keys loaded by earlier files, but never an env var
+    # already set outside this script. Values are never echoed.
+    if (-not (Test-Path $Path)) { return }
+    Get-Content $Path | ForEach-Object {
+        if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
+            $k = $matches[1]
+            if ($Owned.ContainsKey($k) -or -not (Test-Path "env:$k")) {
+                $v = $matches[2].Trim()
+                if ($v.Length -ge 2 -and (($v.StartsWith('"') -and $v.EndsWith('"')) -or ($v.StartsWith("'") -and $v.EndsWith("'")))) {
+                    $v = $v.Substring(1, $v.Length - 2)
+                } else {
+                    $v = $v -replace '\s+#.*$', ''
+                }
+                Set-Item -Path "env:$k" -Value $v
+                $Owned[$k] = $true
+            }
+        }
+    }
+}
 function Resolve-LanIPv4 {
     if ($LanIp) { return $LanIp }
     # IPv4 of the interface holding the default route = the LAN IP in use.
@@ -146,7 +171,11 @@ switch ($Action) {
         }
 
         # --- mediaMTX ---
-        if (Test-Ours "mediamtx" "mediamtx.exe") {
+        # Khoi dong qua start-mediamtx.ps1 (wrapper nap MTX_AUTHINTERNALUSERS_* tu
+        # file secret ~/.camdai/mediamtx.env). Chay bare exe thi authInternalUsers
+        # trong yml la [] -> KHONG co user nao -> publisher/recorder bi 401.
+        $mtxMarker = "mediamtx"
+        if (Test-Ours "mediamtx" $mtxMarker) {
             Ok "mediaMTX already running (pid $(Read-PidFile 'mediamtx')), skip"
         } else {
             # go2rtc owns 127.0.0.1:8554 (loopback RTSP); mediaMTX wildcard :8554 can
@@ -156,7 +185,12 @@ switch ($Action) {
             if ($busy) {
                 Warn ":8554/$ip or 127.0.0.1:9997 already served - not starting mediaMTX"
             } else {
-                Start-Managed "mediamtx" (Join-Path $mtxDir "mediamtx.exe") @("mediamtx.yml") $mtxDir | Out-Null
+                $mtxStarter = Join-Path $repoRoot "infra\mediamtx\start-mediamtx.ps1"
+                $mtxConfig = Join-Path $mtxDir "mediamtx.yml"
+                Start-Managed "mediamtx" "powershell.exe" @(
+                    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$mtxStarter`"",
+                    "-Config", "`"$mtxConfig`""
+                ) $repoRoot | Out-Null
                 if (Wait-HttpOk "http://127.0.0.1:9997/v3/paths/list" 15) { Ok "mediaMTX API 127.0.0.1:9997 OK" }
                 else { Warn "mediaMTX API not responding after 15s - see $logDir\mediamtx.err.log" }
             }
@@ -199,11 +233,41 @@ switch ($Action) {
         }
         Info "RTSP camera URL to add in the app: $rtsp"
         }
+
+        # --- app (Next.js :3000) ---
+        # Env is loaded into THIS process from the repo dotenv files plus the
+        # out-of-repo Google OAuth file; the child inherits it. Later files
+        # override earlier ones; values are never echoed.
+        $appEnv = @{}
+        Import-DotEnv (Join-Path $repoRoot ".env") $appEnv
+        Import-DotEnv (Join-Path $repoRoot ".env.local") $appEnv
+        Import-DotEnv (Join-Path $env:USERPROFILE ".camdai\google-oauth.env") $appEnv
+        if (Test-Ours "app" "next/dist/bin/next") {
+            Ok "app already running (pid $(Read-PidFile 'app')), skip"
+        } elseif (Test-PortOpen "127.0.0.1" 3000) {
+            Warn "127.0.0.1:3000 already served by another process - not starting app"
+        } else {
+            $node = Get-Command node -ErrorAction SilentlyContinue
+            $nextBin = "$repoRootFwd/node_modules/next/dist/bin/next"
+            if (-not $node) {
+                Warn "node not found in PATH - not starting app"
+            } elseif (-not (Test-Path (Join-Path $repoRoot "node_modules\next\dist\bin\next"))) {
+                Warn "next binary missing under node_modules - run npm install first"
+            } elseif (-not (Test-Path (Join-Path $repoRoot ".next"))) {
+                Warn "no .next build output - run npm run build first"
+            } else {
+                Start-Managed "app" $node.Source @("`"$nextBin`"", "start", "-p", "3000") $repoRoot | Out-Null
+                if (Wait-HttpOk "http://127.0.0.1:3000/api/health" 60) { Ok "app health 127.0.0.1:3000 OK" }
+                else { Warn "app not healthy after 60s - see $logDir\app.err.log" }
+            }
+        }
+        Info "App: http://localhost:3000"
     }
 
     "stop" {
+        Stop-Managed "app" "next/dist/bin/next"
         Stop-Managed "publisher" "rtsp-publisher.ps1"
-        Stop-Managed "mediamtx" "mediamtx.exe"
+        Stop-Managed "mediamtx" "mediamtx"
         Stop-Managed "go2rtc" "go2rtc.exe"
         # Safety sweep: kill any leftover process whose CommandLine marks it as
         # part of this stack (covers dead pidfiles / orphaned ffmpeg children).
@@ -220,7 +284,8 @@ switch ($Action) {
             @{ L = "127.0.0.1:1984 (go2rtc api)"; A = "127.0.0.1"; P = 1984 },
             @{ L = "127.0.0.1:8554 (go2rtc rtsp)"; A = "127.0.0.1"; P = 8554 },
             @{ L = "${ip}:8554 (mediamtx rtsp)"; A = $ip; P = 8554 },
-            @{ L = "127.0.0.1:9997 (mediamtx api)"; A = "127.0.0.1"; P = 9997 }
+            @{ L = "127.0.0.1:9997 (mediamtx api)"; A = "127.0.0.1"; P = 9997 },
+            @{ L = "127.0.0.1:3000 (app http)"; A = "127.0.0.1"; P = 3000 }
         )
         foreach ($c in $checks) {
             if ($c.A -like "<*") { Info "port $($c.L): skip (no LAN IP)"; continue }
@@ -235,7 +300,12 @@ switch ($Action) {
             $cam = Invoke-RestMethod -Uri "http://127.0.0.1:9997/v3/paths/get/cam" -TimeoutSec 3
             Info "mediaMTX path cam: ready=$($cam.ready) source=$($cam.source.type)"
         } catch { Warn "mediaMTX path cam not ready / api down: $($_.Exception.Message)" }
-        foreach ($n in @("go2rtc", "mediamtx", "publisher")) {
+        try {
+            $h = Invoke-WebRequest -Uri "http://127.0.0.1:3000/api/health" -TimeoutSec 3 -UseBasicParsing
+            Ok "app /api/health -> HTTP $($h.StatusCode)"
+        } catch { Warn "app /api/health not responding: $($_.Exception.Message)" }
+        Info "App: http://localhost:3000"
+        foreach ($n in @("go2rtc", "mediamtx", "publisher", "app")) {
             $procId = Read-PidFile $n
             $alive = if ($procId) { [bool](Get-ProcInfo $procId) } else { $false }
             Info "$n : pidfile=$procId alive=$alive"
