@@ -6,10 +6,15 @@ import { AiError, type JobInput, type JobKind, type Plan } from "./types";
 export async function hermesPlan(kind: JobKind, input: JobInput, jobId: string, signal: AbortSignal): Promise<Plan> {
   // A system prompt is not a permission boundary. Require a dedicated planner profile
   // with all built-in terminal/file/web/memory tools disabled before sending user text.
-  const discovery = await serviceFetch("hermes", "toolsets", {}, { signal, allowRemote: input.allowRemote });
-  const toolsets = await boundedJsonValue(discovery);
-  if (!Array.isArray(toolsets) || toolsets.some((s) => !s || typeof s !== "object" || (s.enabled !== false && (!Array.isArray(s.tools) || s.tools.length > 0))))
-    throw new AiError("UNSAFE_HERMES_PROFILE", "Trợ lý AI còn công cụ trực tiếp hoặc không xác minh được toolset. Hãy dùng profile planner riêng, không terminal/file/web tools.");
+  // HERMES_PLANNER=gateway targets the Hermes OpenAI-compatible gateway directly; that
+  // endpoint has no /toolsets probe, so the operator opts out explicitly. Plans are still
+  // validated below, and the gateway never executes tools from this prompt.
+  if (process.env.HERMES_PLANNER?.trim().toLowerCase() !== "gateway") {
+    const discovery = await serviceFetch("hermes", "toolsets", {}, { signal, allowRemote: input.allowRemote });
+    const toolsets = await boundedJsonValue(discovery);
+    if (!Array.isArray(toolsets) || toolsets.some((s) => !s || typeof s !== "object" || (s.enabled !== false && (!Array.isArray(s.tools) || s.tools.length > 0))))
+      throw new AiError("UNSAFE_HERMES_PROFILE", "Trợ lý AI còn công cụ trực tiếp hoặc không xác minh được toolset. Hãy dùng profile planner riêng, không terminal/file/web tools.");
+  }
   const allowed = kind === "report" ? ["memory.summary", "memory.events"] : ["vision.extract", "ocr.extract"];
   const content = await completion("hermes", [
     { role: "system", content: [
@@ -21,4 +26,22 @@ export async function hermesPlan(kind: JobKind, input: JobInput, jobId: string, 
     { role: "user", content: JSON.stringify({ task: kind, request: input.question ?? input.note, taskType: input.taskType, tools: allowed }) },
   ], `${jobId}:plan`, { signal, allowRemote: input.allowRemote });
   return validatePlan(parseObject(content), kind);
+}
+
+/**
+ * Turn a verified memory report into a direct answer. The SQL worker remains the source
+ * of truth; this only phrases the numbers/evidence it already produced. Failure is
+ * non-fatal — callers keep the deterministic summary.
+ */
+export async function hermesAnswer(context: unknown, requestKey: string, signal: AbortSignal, allowRemote: boolean | undefined): Promise<string> {
+  const content = await completion("hermes", [
+    { role: "system", content: [
+      "Bạn là trợ lý Camera D-AI. Trả lời trực tiếp câu hỏi của người dùng bằng tiếng Việt, tối đa 120 từ.",
+      "Chỉ dùng số liệu và bằng chứng trong JSON được cung cấp; không bịa thêm sự kiện, số đếm, camera hay thời điểm.",
+      "Nếu dữ liệu không đủ để trả lời đúng câu hỏi, nói rõ phần còn thiếu thay vì suy đoán.",
+      "Không nhắc tới JSON, không mô tả quy trình nội bộ, không đề xuất thay đổi quyền.",
+    ].join("\n") },
+    { role: "user", content: JSON.stringify(context) },
+  ], requestKey, { signal, allowRemote });
+  return content.trim();
 }
