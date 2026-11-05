@@ -14,4 +14,7 @@ export async function register() {
   // chiếu lại DB ngay khi khởi động và lặp mỗi 60 s.
   const { startRecordingReconcile } = await import("@/lib/camera/reconcile");
   startRecordingReconcile();
+  // Giữ producer MJPEG của go2rtc ấm liên tục — tránh frame đầu sau idle mất ~6s.
+  const { startStreamKeepWarm } = await import("@/lib/camera/keepwarm");
+  startStreamKeepWarm();
 }
