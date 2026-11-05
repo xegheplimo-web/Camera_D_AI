@@ -8,7 +8,7 @@
   "steps_today": 11,
   "steps_today_date": "2026-11-05",
   "stop_flag": "F:/Camera-D-AI/publish/Camera_D_AI/.orchestrator/autonomous/STOP",
-  "current": "P4",
+  "current": null,
   "milestones": [
     {
       "id": "M0",
@@ -225,19 +225,22 @@
     {
       "id": "P4",
       "title": "Ghi vào máy: ghi hình trực tiếp về máy người dùng (Bắt đầu/Dừng/Lưu), hỗ trợ cả IP camera (MJPEG qua canvas) và webcam; camera mới thêm thì bật ghi tự động; nút Xem lại trên trang chủ",
-      "status": "blocked",
+      "status": "done",
       "priority": 15,
       "prereq": [],
       "gate": "test:p4 chạy pass (state machine + mime + filename, fake MediaRecorder), local-recorder.ts không ghi đĩa, component dùng captureStream, POST tạo camera đặt recordEnabled=true, test:t1336 vẫn xanh",
       "attempts": 1,
-      "blocked_reason": "đang được điều phối thủ công bằng Devin (proc_95e6baf8fae4) — park để cron không dispatch trùng; mở lại sau khi verify",
-      "blocked_at": "2026-11-05T03:09:46"
+      "evidence": "Ghi vào máy (canvas+captureStream), camera mới recordEnabled=true, Xem lại trên trang chủ; test:p4 8/8 + smoke 10/10",
+      "done_at": "2026-11-05T03:33:46",
+      "verified_at": "2026-11-05T03:33:46",
+      "evidence_sha": null,
+      "gate_output": "PASS P4: browser-side recording proven by test:p4, drawer contract still green\nGATE PASS P4"
     }
   ],
   "run": {
-    "id": "P4-1793822656",
-    "started_at": "2026-11-05T03:04:16",
-    "status": "doing",
+    "id": null,
+    "started_at": null,
+    "status": "done",
     "needs_reconcile": false
   }
 }
