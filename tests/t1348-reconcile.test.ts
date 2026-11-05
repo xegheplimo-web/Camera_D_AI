@@ -5,6 +5,7 @@
  * không phá bản ghi đang chạy; phần DB dùng Postgres thật vì reconcile đọc
  * camera_settings thật. Test tự dọn hàng đã tạo.
  */
+import "dotenv/config";
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { eq } from "drizzle-orm";
@@ -89,9 +90,14 @@ test("path đã ghi đúng ⇒ bỏ qua, không gọi add/patch", async () => {
   try {
     const r = await reconcileRecordingPaths();
     assert.ok(r.checked >= 1);
-    assert.equal(r.ensured, 0);
     assert.ok(r.skipped >= 1, "phải skip camera đã ghi đúng");
-    assert.equal(calls.filter((c) => /POST|PATCH/.test(c)).length, 0, "không được gọi write");
+    // DB dev dùng chung có camera khác đang bật ghi — chỉ khẳng định trên stream
+    // của test: camera đã ghi đúng thì không được phát sinh write nào cho nó.
+    assert.equal(
+      calls.filter((c) => /POST|PATCH/.test(c) && c.includes("dai_cam_t1348_a")).length,
+      0,
+      "không được gọi write cho camera đã ghi đúng",
+    );
   } finally {
     await cleanup(id);
   }
@@ -114,9 +120,10 @@ test("camera tắt ghi hình ⇒ không đụng mediaMTX", async () => {
   const id = await makeCamera("dai_cam_t1348_c", false);
   fakeMediaMtx();
   try {
-    const r = await reconcileRecordingPaths();
-    assert.equal(r.ensured, 0);
-    assert.equal(calls.length, 0, "không được probe camera tắt ghi");
+    await reconcileRecordingPaths();
+    // DB dùng chung: camera khác có thể ensured/probe — chỉ khẳng định camera
+    // tắt ghi của test không bị đụng tới (where recordEnabled=true loại nó ra).
+    assert.equal(calls.filter((c) => c.includes("dai_cam_t1348_c")).length, 0, "không được probe camera tắt ghi");
     assert.equal(paths.has("dai_cam_t1348_c"), false);
   } finally {
     await cleanup(id);

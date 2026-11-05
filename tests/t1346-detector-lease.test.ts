@@ -5,6 +5,7 @@
  * của guard là advisory lock của Postgres: fake sẽ không chứng minh được gì.
  * DB dùng DATABASE_URL của CI; test idempotent (tự dọn hàng đã tạo).
  */
+import "dotenv/config";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { and, eq, sql } from "drizzle-orm";
