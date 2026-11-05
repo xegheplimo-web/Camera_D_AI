@@ -17,7 +17,7 @@ const prefix = `contract_${randomBytes(5).toString("hex")}`;
 const password = randomBytes(24).toString("hex");
 const serviceKey = randomBytes(32).toString("hex");
 const dispatchKey = randomBytes(32).toString("hex");
-const state = { hermesDown: false, unsafe: false, invalidPlan: false, slowVision: 0, invalidVision: false, visionDown: false, visionAttempts: 0, hermesCalls: 0, visionCalls: 0, ocrCalls: 0, cropWidth: 0 };
+const state = { hermesDown: false, unsafe: false, invalidPlan: false, slowVision: 0, invalidVision: false, visionDown: false, visionAttempts: 0, hermesCalls: 0, visionCalls: 0, ocrCalls: 0, cropWidth: 0, answerPrompts: [] as string[] };
 let fixture: Server, app: ChildProcess, base: string, ownerCookie = "", viewerCookie = "", ownerSession: SessionPayload;
 let userIds: number[] = [], camId: number, assetId: number;
 let settingsBefore: (typeof appSettings.$inferSelect)[] = [], healthBefore: (typeof aiServices.$inferSelect)[] = [];
@@ -84,8 +84,14 @@ before(async () => {
     let content: unknown;
     if (url.includes("/hermes/")) {
       state.hermesCalls++;
-      const q = JSON.parse(b.messages.at(-1).content);
-      content = state.invalidPlan ? { tools: ["terminal"], sql: "DROP TABLE events" } : { tools: q.task === "report" ? ["memory.summary", "memory.events"] : ["vision.extract", "ocr.extract"] };
+      const sys = String(b.messages?.[0]?.content ?? "");
+      if (!state.invalidPlan && sys.includes("Trả lời trực tiếp câu hỏi")) {
+        state.answerPrompts.push(b.messages.at(-1).content);
+        content = "Fixture answer: trả lời theo ngữ cảnh hội thoại.";
+      } else {
+        const q = JSON.parse(b.messages.at(-1).content);
+        content = state.invalidPlan ? { tools: ["terminal"], sql: "DROP TABLE events" } : { tools: q.task === "report" ? ["memory.summary", "memory.events"] : ["vision.extract", "ocr.extract"] };
+      }
     } else {
       const isOcr = url.includes("/ocr/");
       if (isOcr) state.ocrCalls++; else state.visionCalls++;
@@ -98,13 +104,13 @@ before(async () => {
         ocrText: isOcr ? "A1" : "", structured: [], confidence: 0.8, warnings: ["Contract fixture, không phải benchmark AI"],
       };
     }
-    res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) }, finish_reason: "stop" }] }));
+    res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ choices: [{ message: { content: typeof content === "string" ? content : JSON.stringify(content) }, finish_reason: "stop" }] }));
   });
   await new Promise<void>((resolve) => fixture.listen(0, "127.0.0.1", resolve));
   const root = `http://127.0.0.1:${(fixture.address() as { port: number }).port}`;
   const appPort = await port(); base = `http://localhost:${appPort}`;
   app = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-p", String(appPort)], { env: { ...process.env,
-    HERMES_BASE_URL: `${root}/hermes/v1`, HERMES_API_KEY: serviceKey, HERMES_EGRESS: "local",
+    HERMES_BASE_URL: `${root}/hermes/v1`, HERMES_API_KEY: serviceKey, HERMES_EGRESS: "local", HERMES_PLANNER: "bridge",
     DAI_VISION_BASE_URL: `${root}/vision/v1`, DAI_VISION_MODEL: "contract-vision", DAI_VISION_API_KEY: serviceKey, DAI_VISION_EGRESS: "local",
     DAI_OCR_BASE_URL: `${root}/ocr/v1`, DAI_OCR_MODEL: "contract-ocr", DAI_OCR_API_KEY: serviceKey, DAI_OCR_EGRESS: "local",
     DAI_VOICE_BASE_URL: `${root}/voice/v1`, DAI_VOICE_STT_MODEL: "contract-stt", DAI_VOICE_TTS_MODEL: "contract-tts", DAI_VOICE_API_KEY: serviceKey, DAI_VOICE_EGRESS: "local",
@@ -171,6 +177,21 @@ test("Gateway + Hermes/Worker contracts (isolated API fixtures)", { timeout: 180
     assert.ok(r.assistant.answer.evidence.every((e: { eventId: number }) => Number.isInteger(e.eventId)));
     assert.equal((await call(`/api/jobs/${a.data.job.id}`, "GET", undefined, viewerCookie)).status, 404);
     const history = await call("/api/chat", "GET", undefined, viewerCookie); assert.equal(history.data.length, 0);
+  });
+  await t.test("follow-up answer carries prior conversation and question-aware data", async () => {
+    const first = await call("/api/chat", "POST", { requestId: randomUUID(), question: `Phân tích Camera ${camId} hôm nay và lập báo cáo` });
+    const r1 = await settle(first.data.job.id);
+    assert.equal(r1.job.state, "succeeded", JSON.stringify(r1.job));
+    const second = await call("/api/chat", "POST", { requestId: randomUUID(), question: "là sao?" });
+    const r2 = await settle(second.data.job.id);
+    assert.equal(r2.job.state, "succeeded", JSON.stringify(r2.job));
+    assert.equal(r2.assistant.answer.short, "Fixture answer: trả lời theo ngữ cảnh hội thoại.");
+    assert.ok(r2.assistant.answer.context?.cameras?.some((c: { id: number; count: number }) => c.id === camId && c.count > 0));
+    assert.ok(r2.assistant.answer.context?.eventTypes?.some((e: { type: string; count: number }) => e.type === "person_in" && e.count === 4));
+    const prompt = JSON.parse(state.answerPrompts.at(-1)!);
+    assert.ok(Array.isArray(prompt.history) && prompt.history.length >= 2, JSON.stringify(prompt));
+    assert.equal(prompt.history.at(-2).role, "user");
+    assert.match(prompt.history.at(-1).text, /Fixture answer/);
   });
   await t.test("Hermes offline gives explicitly partial SQL report; fast path still works", async () => {
     await clearBreaker(); state.hermesDown = true;

@@ -1,5 +1,6 @@
 import { boundedJsonValue, completion, serviceFetch } from "./services";
 import { parseObject, validatePlan } from "./routing";
+import type { AnswerPayload } from "@/db/schema";
 import { AiError, type JobInput, type JobKind, type Plan } from "./types";
 
 /** Hermes is the planner; the Gateway remains the authority over tools, SQL and asset access. */
@@ -33,12 +34,13 @@ export async function hermesPlan(kind: JobKind, input: JobInput, jobId: string, 
  * of truth; this only phrases the numbers/evidence it already produced. Failure is
  * non-fatal — callers keep the deterministic summary.
  */
-export async function hermesAnswer(context: unknown, requestKey: string, signal: AbortSignal, allowRemote: boolean | undefined): Promise<string> {
+export async function hermesAnswer(context: { question: string; report: AnswerPayload; history?: { role: "user" | "assistant"; text: string }[] }, requestKey: string, signal: AbortSignal, allowRemote: boolean | undefined): Promise<string> {
   const content = await completion("hermes", [
     { role: "system", content: [
-      "Bạn là trợ lý Camera D-AI. Trả lời trực tiếp câu hỏi của người dùng bằng tiếng Việt, tối đa 120 từ.",
-      "Chỉ dùng số liệu và bằng chứng trong JSON được cung cấp; không bịa thêm sự kiện, số đếm, camera hay thời điểm.",
-      "Nếu dữ liệu không đủ để trả lời đúng câu hỏi, nói rõ phần còn thiếu thay vì suy đoán.",
+      "Bạn là trợ lý Camera D-AI trong một cuộc hội thoại nhiều lượt. Trả lời trực tiếp câu hỏi hiện tại bằng tiếng Việt, tối đa 120 từ.",
+      "Câu hỏi có thể là câu nối tiếp như 'là sao?', 'còn camera kia?' — dùng history để hiểu đúng đối tượng, không trả lời lại từ đầu.",
+      "Chỉ dùng số liệu và bằng chứng trong JSON được cung cấp; report.context có cameras, eventTypes, hourly, latest để trả lời câu hỏi về camera/loại sự kiện/giờ/bản ghi gần nhất.",
+      "Không bịa thêm sự kiện, số đếm, camera hay thời điểm. Nếu dữ liệu không đủ để trả lời đúng câu hỏi, nói rõ phần còn thiếu thay vì suy đoán.",
       "Không nhắc tới JSON, không mô tả quy trình nội bộ, không đề xuất thay đổi quyền.",
     ].join("\n") },
     { role: "user", content: JSON.stringify(context) },
