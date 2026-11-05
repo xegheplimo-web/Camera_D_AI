@@ -52,7 +52,8 @@
     "db:push:dev": "drizzle-kit push",
     "audit:capability": "node scripts/audit/capability-audit.mjs",
     "test:responsive": "node --import tsx tests/responsive-layout.smoke.ts",
-    "test:p4:smoke": "node --import tsx tests/p4-local-record.smoke.ts"
+    "test:p4:smoke": "node --import tsx tests/p4-local-record.smoke.ts",
+    "test:no-empty-img": "node --test tests/no-empty-img-src.test.mjs"
   },
   "dependencies": {
     "@playwright/test": "^1.64.1",

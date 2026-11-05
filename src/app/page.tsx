@@ -181,8 +181,12 @@ export default function HomePage() {
               onClick={() => { setCamId(c.id); window.localStorage.setItem("dai_cam_id", String(c.id)); }}
               className={`flex min-w-[170px] items-center gap-2 rounded-xl border p-1.5 text-left transition xl:min-w-0 ${c.id === cam?.id ? "border-emerald-400/70 bg-emerald-500/10 shadow-[0_0_14px_rgba(52,211,153,0.3)]" : "border-white/10 hover:bg-white/5"}`}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={c.thumbnail ?? ""} alt="" className="h-11 w-16 rounded-lg object-cover" />
+              {c.thumbnail ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={c.thumbnail} alt="" className="h-11 w-16 rounded-lg object-cover" />
+              ) : (
+                <div className="flex h-11 w-16 shrink-0 items-center justify-center rounded-lg bg-slate-700/60 text-slate-400"><Camera className="h-4 w-4" /></div>
+              )}
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold">{c.name}</div>
                 <div className="truncate text-[11px] text-slate-400">{c.location}</div>

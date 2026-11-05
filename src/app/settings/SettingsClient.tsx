@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { Video, Volume2, Smartphone, ShieldCheck, Trash2, Plus, Cpu, CheckCircle2, Circle, Users, HardDrive, Pencil } from "lucide-react";
+import { Video, Volume2, Smartphone, ShieldCheck, Trash2, Plus, Cpu, CheckCircle2, Circle, Users, HardDrive, Pencil, Camera } from "lucide-react";
 import { Card, Badge, Modal } from "@/components/ui";
 import { useApp } from "@/components/AppState";
 import { api, getDeviceId } from "@/lib/client";
@@ -237,8 +237,12 @@ export default function SettingsClient({ initialRole }: { initialRole: string })
                       </div>
                     ) : (
                       <div className="flex items-center gap-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={c.thumbnail ?? ""} alt="" className="h-10 w-16 rounded-lg object-cover" />
+                        {c.thumbnail ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img src={c.thumbnail} alt="" className="h-10 w-16 rounded-lg object-cover" />
+                        ) : (
+                          <div className="flex h-10 w-16 shrink-0 items-center justify-center rounded-lg bg-slate-700/60 text-slate-400"><Camera className="h-4 w-4" /></div>
+                        )}
                         <div className="flex-1">
                           <div className="text-sm font-semibold">{c.code} · {c.name}{!c.enabled && <span className="ml-1 text-amber-300">(tắt)</span>}</div>
                           <div className="text-xs text-[#a9bad2]">{c.location}{c.retentionDays ? ` · giữ ${c.retentionDays}d` : ""}{c.sourceType === "rtsp" && c.sourceHost ? ` · ${c.sourceHost}` : ""}</div>
