@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PlusCircle, Activity, AlertTriangle, Wifi, Plus, RadioTower, Settings } from "lucide-react";
+import { PlusCircle, Activity, AlertTriangle, Wifi, Plus, RadioTower, Settings, Camera } from "lucide-react";
 import CameraView, { type Cam } from "@/components/CameraView";
 import CameraDiscovery, { type DiscoveryControls } from "@/components/CameraDiscovery";
 import CameraSettingsDrawer from "@/components/CameraSettingsDrawer";
@@ -158,8 +158,12 @@ export default function CameraPage() {
           <div className="space-y-2">
             {cams.map((c) => { const st = listStatus(c, health[c.id]?.connection); return (
               <div key={c.id} role="button" tabIndex={0} onClick={() => selectCam(c.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectCam(c.id); } }} className={`flex w-full cursor-pointer items-center gap-3 rounded-xl border p-2 text-left ${c.id === camId ? "border-cyan-400/60 bg-cyan-500/10" : "border-white/10 hover:bg-white/5"}`}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={c.thumbnail ?? ""} alt="" className="h-12 w-20 rounded-lg object-cover" />
+                {c.thumbnail ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={c.thumbnail} alt="" className="h-12 w-20 rounded-lg object-cover" />
+                ) : (
+                  <div className="flex h-12 w-20 items-center justify-center rounded-lg bg-slate-700/60 text-slate-400"><Camera className="h-5 w-5" /></div>
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold">{c.name}{c.enabled === false && <span className="ml-1 text-xs text-amber-300">(tắt)</span>}</div>
                   <div className="text-xs text-slate-400">{c.location} · {c.sourceType === "webcam" ? "Webcam" : c.sourceType === "rtsp" ? `IP/RTSP${c.sourceHost ? ` · ${c.sourceHost}` : ""}` : "Mô phỏng"}</div>
