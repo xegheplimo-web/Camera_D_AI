@@ -199,7 +199,7 @@ export default function HomePage() {
       </div>
 
       {/* Chat */}
-      <div className="min-w-0 xl:col-span-4 xl:row-span-2">
+      <div className="min-w-0 min-h-0 xl:col-span-4 xl:row-span-2">
         <ChatPanel compact />
       </div>
 

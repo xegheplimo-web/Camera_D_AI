@@ -419,3 +419,114 @@ test("mobile 390px: drawer toàn chiều rộng, không tràn ngang", async () =
   assert.ok(box && box.width <= 390 && box.width > 300, `drawer width=${box?.width} phải ~toàn chiều rộng`);
   assert.deepEqual(pageErrors, [], "không được có lỗi JS nào trong phiên trình duyệt");
 });
+
+/* ============ 7. Trang chủ: khung chat compact tự cuộn, không kéo dài trang ============ */
+
+test("trang chủ: khung chat compact giới hạn theo viewport, chỉ vùng tin nhắn cuộn", async () => {
+  // Stub GET /api/chat: 4 tin assistant với answer.short ~1500 ký tự + ảnh bằng chứng,
+  // đủ nội dung để tràn khung nếu layout không giới hạn chiều cao.
+  const filler = "Nội dung phân tích camera dài ".repeat(55);
+  const history = [1, 2, 3, 4].map((id) => ({
+    id,
+    tenantId: 1,
+    role: "assistant",
+    text: `CÂU TRẢ LỜI DÀI ${id}`,
+    inputMode: "text",
+    createdAt: new Date().toISOString(),
+    answer: {
+      short: `CÂU TRẢ LỜI DÀI ${id} — ${filler}`,
+      kind: "DETERMINISTIC_AGGREGATION",
+      execution: { path: "fast", durationMs: 9, reason: "fixture" },
+      details: Array.from({ length: 6 }, (_, i) => `Chi tiết ${i + 1}: ${"số liệu thống kê ".repeat(12)}`),
+      evidence: [0, 1, 2].map((i) => ({ label: `Bằng chứng ${i + 1}`, time: `10:0${i}`, thumb: `/api/assets/${i === 2 ? a2 : a1}` })),
+      evidenceCount: 3,
+      nextActions: [],
+      chart: [
+        { label: "h1", value: 4 }, { label: "h2", value: 7 }, { label: "h3", value: 3 },
+        { label: "h4", value: 9 }, { label: "h5", value: 5 }, { label: "h6", value: 2 },
+      ],
+      warnings: [],
+    },
+  }));
+  const handler = async (route: Route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({ json: history });
+  };
+  await page.route("**/api/chat", handler);
+
+  const measure = () =>
+    page.evaluate(() => {
+      const mic = document.querySelector('button[aria-label="Nhấn để nói"]');
+      const frame = mic?.closest("div.glass") ?? null;
+      const list = frame?.querySelector("div.overflow-y-auto") ?? null;
+      const composer = frame?.querySelector("div.border-t") ?? null;
+      const input = frame?.querySelector('input[aria-label="Câu hỏi"]');
+      return {
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        docScrollWidth: document.documentElement.scrollWidth,
+        docScrollHeight: document.documentElement.scrollHeight,
+        isChat: Boolean(frame?.textContent?.includes("Trợ lý AI")),
+        frame: frame?.getBoundingClientRect().toJSON() ?? null,
+        listClientH: list?.clientHeight ?? 0,
+        listScrollH: list?.scrollHeight ?? 0,
+        mic: mic?.getBoundingClientRect().toJSON() ?? null,
+        composer: composer?.getBoundingClientRect().toJSON() ?? null,
+        input: input?.getBoundingClientRect().toJSON() ?? null,
+      };
+    });
+
+  type M = Awaited<ReturnType<typeof measure>>;
+  const checkFrame = (m: M, label: string) => {
+    assert.ok(m.isChat, `${label}: không tìm thấy khung chat (div.glass chứa 'Trợ lý AI')`);
+    assert.ok(m.frame, `${label}: thiếu khung chat`);
+    assert.ok(
+      m.frame!.height <= 0.9 * m.innerHeight,
+      `${label}: khung chat cao ${m.frame!.height.toFixed(0)}px > 0.9 × innerHeight ${m.innerHeight}px`,
+    );
+    assert.ok(
+      m.listScrollH > m.listClientH,
+      `${label}: vùng tin nhắn phải tự cuộn (scrollHeight=${m.listScrollH} > clientHeight=${m.listClientH})`,
+    );
+    for (const [name, r] of [["mic", m.mic], ["composer", m.composer]] as const) {
+      const inside = r !== null && r.top >= m.frame!.top - 1 && r.bottom <= m.frame!.bottom + 1;
+      assert.ok(
+        inside,
+        `${label}: ${name} phải nằm cố định trong khung chat (top=${r?.top.toFixed(0) ?? "?"} bottom=${r?.bottom.toFixed(0) ?? "?"} frame=${m.frame!.top.toFixed(0)}..${m.frame!.bottom.toFixed(0)})`,
+      );
+    }
+  };
+
+  try {
+    // Desktop 1440×900
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(base + "/");
+    await page.getByText("CÂU TRẢ LỜI DÀI 4", { exact: false }).first().waitFor({ timeout: 15000 });
+    await page.waitForTimeout(400);
+    const desk = await measure();
+    console.log(`[chat-scroll] desktop ${JSON.stringify(desk)}`);
+    checkFrame(desk, "desktop");
+
+    // Mở bàn phím ⇒ ô nhập cũng phải nằm trong khung.
+    await page.locator('button[aria-label="Bàn phím"]').click();
+    await page.locator('input[aria-label="Câu hỏi"]').waitFor({ timeout: 5000 });
+    const deskInput = await measure();
+    console.log(`[chat-scroll] desktop+keyboard ${JSON.stringify(deskInput)}`);
+    assert.ok(
+      deskInput.input && deskInput.frame &&
+        deskInput.input.top >= deskInput.frame.top - 1 && deskInput.input.bottom <= deskInput.frame.bottom + 1,
+      "desktop: ô nhập phải nằm trong khung chat",
+    );
+
+    // Mobile 390×844
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(400);
+    const mob = await measure();
+    console.log(`[chat-scroll] mobile ${JSON.stringify(mob)}`);
+    checkFrame(mob, "mobile");
+    assert.ok(mob.docScrollWidth <= mob.innerWidth, `mobile: scrollWidth=${mob.docScrollWidth} vượt innerWidth=${mob.innerWidth}`);
+  } finally {
+    await page.unroute("**/api/chat", handler);
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
+});

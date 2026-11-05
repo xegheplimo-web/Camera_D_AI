@@ -185,8 +185,8 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
   };
 
   return (
-    <div className={`glass flex flex-col rounded-2xl ${compact ? "h-full min-h-[560px]" : "h-[calc(100vh-150px)] min-h-[520px]"}`}>
-      <div className="flex items-center gap-3 border-b border-white/5 px-4 py-3">
+    <div className={`glass flex flex-col min-h-0 overflow-hidden rounded-2xl ${compact ? "h-[calc(100dvh-220px)] min-h-[420px]" : "h-[calc(100vh-150px)] min-h-[520px]"}`}>
+      <div className="flex shrink-0 items-center gap-3 border-b border-white/5 px-4 py-3">
         <div className="-my-3"><Robot mood={mood} size={44} /></div>
         <div className="min-w-0 flex-1">
           <div className="font-semibold">Trợ lý AI <span className="text-xs font-normal text-slate-400">· hỏi đáp bằng giọng nói</span></div>
@@ -207,14 +207,14 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
       </div>
 
       {demoMode === false && msgs.some((m) => m.role === "assistant" && answerBasedOnDemo(m.answer)) && (
-        <div className="mx-3 mt-2 flex items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+        <div className="mx-3 mt-2 flex shrink-0 items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0 flex-1">Có câu trả lời cũ dựa trên dữ liệu mẫu đã xoá — số liệu có thể không còn đúng.</span>
           <button onClick={clear} className="shrink-0 rounded-lg border border-amber-400/40 px-2 py-1 font-semibold text-amber-100 hover:bg-amber-500/20">Xoá lịch sử</button>
         </div>
       )}
 
-      <div ref={listRef} className="scroll-thin flex-1 space-y-3 overflow-y-auto p-4">
+      <div ref={listRef} className="scroll-thin min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
         {msgs.length === 0 && (
           <div className="space-y-3 text-sm text-slate-300">
             <p>Xin chào! Mình là <b className="text-cyan-300">D-AI Bot</b>. Bạn có thể hỏi mình về camera, sự kiện, ảnh đã lưu… Mình luôn trả lời kèm số liệu và bằng chứng.</p>
@@ -254,7 +254,7 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
         )}
       </div>
 
-      <div className="space-y-2 border-t border-white/5 p-3">
+      <div className="shrink-0 space-y-2 border-t border-white/5 p-3">
         {!compact || msgs.length < 2 ? (
           <div className="scroll-thin flex gap-1.5 overflow-x-auto pb-1">
             {SUGGESTIONS.slice(0, compact ? 3 : 7).map((s) => (
