@@ -16,7 +16,7 @@
       "status": "done",
       "priority": 0,
       "prereq": [],
-      "gate": "ffprobe khong credential toi rtsp://192.168.1.243:8554/cam phai THAT BAI; publish path chua dang ky van 400; camera 796 van stream (frame HTTP 200)",
+      "gate": "ffprobe khong credential toi rtsp://127.0.0.1:8554/cam phai THAT BAI; publish path chua dang ky van 400; camera 796 van stream (frame HTTP 200)",
       "evidence": "MediaMTX khoa auth: 4 user tach quyen (publisher/read/playback/api-only loopback), pathDefaults.record=no, chi path 'cam' ghi. Gate that: anon ffprobe -> 401; publish path la -> 400; cred read -> h264 1280x720; frame 796 -> 200; /api/cameras/796/stream -> 200 multipart. Config vao git tai infra/mediamtx/ (khong secret; secret o ~/.camdai/mediamtx.env). Commit 776ce25.",
       "done_at": "2026-11-05T00:47:23",
       "verified_at": "2026-11-05T00:47:23",

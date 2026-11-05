@@ -3,7 +3,7 @@
 M0 (2026-11-05): khoá MediaMTX. Trước đây `F:/Camera-D-AI/runtime/mediamtx/mediamtx.yml`
 nằm ngoài git và có **một user `any` mật khẩu rỗng** với đủ quyền
 publish/read/playback/api cho cả dải private ⇒ bất kỳ máy nào trong LAN đọc được
-luồng camera mà không cần credential (đã verify: `ffprobe rtsp://192.168.1.243:8554/cam`
+luồng camera mà không cần credential (đã verify: `ffprobe rtsp://<LAN-IP>:8554/cam`
 trả H264 1280×720).
 
 ## Thành phần
@@ -52,16 +52,17 @@ Scheduler hoặc process Hermes `persist_on_release`.
 ## Kiểm tra (2 lớp)
 
 ```bash
-# Lớp A — không credential phải THẤT BẠI (401)
-ffprobe -v error -rtsp_transport tcp rtsp://192.168.1.243:8554/cam
+# Lớp A — không credential phải THẤT BẠI (401). mediaMTX chỉ phục vụ LAN-IP
+# (loopback :8554 là go2rtc) nên probe phải nhắm <LAN-IP>.
+ffprobe -v error -rtsp_transport tcp rtsp://<LAN-IP>:8554/cam
 
 # Lớp A — publish path chưa đăng ký phải 400 (kể cả khi có credential publish)
 ffmpeg -f lavfi -i testsrc2=size=320x240:rate=5 -t 3 -f rtsp \
-  "rtsp://publisher:<pass>@192.168.1.243:8554/khong_dang_ky"
+  "rtsp://publisher:<pass>@<LAN-IP>:8554/khong_dang_ky"
 
 # Lớp B — có credential read thì đọc được
 ffprobe -v error -rtsp_transport tcp \
-  "rtsp://reader:<pass>@192.168.1.243:8554/cam"
+  "rtsp://reader:<pass>@<LAN-IP>:8554/cam"
 
 # Lớp B — camera thật 796 vẫn có frame (không đi qua MediaMTX)
 curl -s -o /dev/null -w '%{http_code}\n' \

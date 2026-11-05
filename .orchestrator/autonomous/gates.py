@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(os.environ.get("LOOP_ROOT") or Path(__file__).resolve().parent)
 REPO = ROOT.parent.parent  # .orchestrator/autonomous -> repo root
 
-MEDIAMTX_RTSP = os.environ.get("MEDIAMTX_RTSP", "rtsp://192.168.1.243:8554/cam")
+MEDIAMTX_RTSP = os.environ.get("MEDIAMTX_RTSP", "rtsp://127.0.0.1:8554/cam")
 MEDIAMTX_API = os.environ.get("MEDIAMTX_API", "http://127.0.0.1:9997")
 GO2RTC_API = os.environ.get("GO2RTC_API", "http://127.0.0.1:1984")
 SECRET_ENV = Path(os.environ.get("MEDIAMTX_ENV", str(Path.home() / ".camdai" / "mediamtx.env")))
