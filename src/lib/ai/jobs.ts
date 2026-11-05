@@ -27,6 +27,17 @@ export function jobView(job: JobRow): JobView {
     createdAt: job.createdAt.toISOString(), updatedAt: job.updatedAt.toISOString(), finishedAt: job.finishedAt?.toISOString() ?? null };
 }
 
+/** Last turns of this user's chat, scoped to tenant, for follow-ups like "là sao?" or "camera kia?". */
+async function answerHistory(job: JobRow): Promise<{ role: "user" | "assistant"; text: string }[]> {
+  try {
+    const rows = await db.select({ role: messages.role, text: messages.text, requestKey: messages.requestKey }).from(messages)
+      .where(and(eq(messages.tenantId, job.tenantId), eq(messages.userId, job.userId)))
+      .orderBy(desc(messages.id)).limit(10);
+    return rows.filter((r) => r.requestKey !== job.idempotencyKey).slice(0, 6).reverse()
+      .map((r) => ({ role: r.role === "assistant" ? "assistant" : "user", text: r.text.slice(0, 1000) }));
+  } catch { return []; }
+}
+
 /** Short transaction. Per-user lock makes idempotency + queue quotas atomic, including extraction draft creation. */
 export async function enqueueJob(kind: JobKind, input: JobInput, session: SessionPayload, key: string, draft?: { title: string; tags: string[]; source: string; productName?: string | null; sku?: string | null; priceVnd?: number | null; quantity?: number | null }) {
   const { asOf: _asOf, extractionId: _extractionId, ...identity } = input;
@@ -203,7 +214,7 @@ export async function runJob(id: string) {
     let extractionResult: ExtractionResult | undefined;
     if (job.kind === "report") {
       if (!summary) throw new AiError("MEMORY_UNAVAILABLE", "Không truy xuất được số liệu nguồn. Không tạo báo cáo không có căn cứ.");
-      result.answer = buildReport(summary, evidence, fallbackReason, requester.role);
+      result.answer = buildReport(summary, evidence, fallbackReason, requester.role, job.input.question ?? job.input.note ?? "");
       result.answer.warnings.push(...failures);
       result.answer.basedOnDemo = job.input.demoMode || answerBasedOnDemo(result.answer);
       // Grounded narration: the model only phrases the verified SQL evidence. Failure keeps
@@ -212,8 +223,9 @@ export async function runJob(id: string) {
       // another model call.
       if (route === "hermes") {
         try {
+          const history = await answerHistory(job);
           const narrated = await hermesAnswer(
-            { question: job.input.question ?? job.input.note ?? "", report: result.answer },
+            { question: job.input.question ?? job.input.note ?? "", report: result.answer, history },
             `${job.id}:answer`, signal, job.input.allowRemote,
           );
           const text = narrated.trim();

@@ -188,6 +188,14 @@ export type AnswerPayload = {
   value?: number | null;
   details: string[];
   calculation?: Record<string, unknown>;
+  /** Dữ liệu hỏi-đáp theo câu hỏi; chỉ gồm số liệu đã kiểm chứng từ DB. */
+  context?: {
+    question?: string;
+    cameras?: { id: number; code: string; name: string; location: string; status: string; count: number; lastAt: string | null }[];
+    eventTypes?: { type: string; objectClass: string | null; count: number }[];
+    hourly?: { hour: number; count: number }[];
+    latest?: { id: number; time: string; camera: string; type: string; label: string }[];
+  };
   evidence: { eventId?: number; extractionId?: number; label: string; time: string; thumb: string | null }[];
   evidenceCount: number;
   nextActions: { label: string; href: string }[];
