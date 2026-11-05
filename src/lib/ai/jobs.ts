@@ -207,18 +207,22 @@ export async function runJob(id: string) {
       result.answer.warnings.push(...failures);
       result.answer.basedOnDemo = job.input.demoMode || answerBasedOnDemo(result.answer);
       // Grounded narration: the model only phrases the verified SQL evidence. Failure keeps
-      // the deterministic summary; it must never invent numbers.
-      try {
-        const narrated = await hermesAnswer(
-          { question: job.input.question ?? job.input.note ?? "", report: result.answer },
-          `${job.id}:answer`, signal, job.input.allowRemote,
-        );
-        const text = narrated.trim();
-        // A model that echoes JSON is not a usable answer; keep the deterministic summary.
-        if (text && !/^[\[{]/.test(text)) result.answer.short = text.slice(0, 1600);
-      } catch (e) {
-        if (signal.aborted) throw e;
-        result.answer.warnings.push("Chưa tạo được câu trả lời diễn giải từ Trợ lý AI; giữ bản tổng hợp số liệu.");
+      // the deterministic summary; it must never invent numbers. Only call it when the plan
+      // succeeded: a fallback (unsafe profile, consent denied, circuit open) must not trigger
+      // another model call.
+      if (route === "hermes") {
+        try {
+          const narrated = await hermesAnswer(
+            { question: job.input.question ?? job.input.note ?? "", report: result.answer },
+            `${job.id}:answer`, signal, job.input.allowRemote,
+          );
+          const text = narrated.trim();
+          // A model that echoes JSON is not a usable answer; keep the deterministic summary.
+          if (text && !/^[\[{]/.test(text)) result.answer.short = text.slice(0, 1600);
+        } catch (e) {
+          if (signal.aborted) throw e;
+          result.answer.warnings.push("Chưa tạo được câu trả lời diễn giải từ Trợ lý AI; giữ bản tổng hợp số liệu.");
+        }
       }
       result.answer.execution = { path: route, jobId: job.id, durationMs: Date.now() - started, reason: route === "hermes" ? "Trợ lý AI chọn công cụ; số liệu và bằng chứng do Trí nhớ/SQL cung cấp." : "Dịch vụ AI dự phòng: chỉ tổng hợp dữ liệu đã lưu, không phân tích video." };
     } else {
