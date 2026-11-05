@@ -163,6 +163,11 @@ switch ($Action) {
         }
 
         # --- publisher ---
+        # Testsrc2 publisher (hình giả) đã bị gỡ khỏi stack mặc định — chỉ bật lại
+        # khi chủ động set DAI_TEST_PUBLISHER=1 (vd: dev cần feed giả để test pipeline).
+        if ($env:DAI_TEST_PUBLISHER -ne "1") {
+            Info "publisher : disabled (DAI_TEST_PUBLISHER!=1) - bo qua video gia testsrc2"
+        } else {
         # mediaMTX runs authMethod=internal with anonymous publish denied (M0), so a
         # publisher URL without credentials is rejected with 401 and the "cam" path
         # stays dead -- which then makes the M0 gate unverifiable. The publish
@@ -193,6 +198,7 @@ switch ($Action) {
             ) $repoRoot | Out-Null
         }
         Info "RTSP camera URL to add in the app: $rtsp"
+        }
     }
 
     "stop" {
