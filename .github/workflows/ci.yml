@@ -115,12 +115,17 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Install Playwright chromium (UI suites)
         run: ./node_modules/.bin/playwright install --with-deps chromium
-      - name: Feature regression suites (T-1318 → T-1341)
+      # Nối thêm các suite milestone/local còn thiếu vào cuối vòng lặp (seed, h01g/h,
+      # P1-P4, M6, M7, responsive, cam-ui-001, p4 smoke). Tất cả đều tự spawn
+      # `next start` trên port trống và tái sử dụng .next/BUILD_ID từ bước build.
+      - name: Feature + milestone regression suites
         run: |
-          for s in test:scope test:retention test:t1318 test:t1323 test:t1335 test:t1336 test:t1337 test:t1338 test:t1339 test:t1340 test:t1341 test:t1346 test:t1348 test:t1353 test:t1350 test:t1355 test:t1356 test:t1351 test:t1347 test:t1361 test:t1364 test:t1365 test:t1362; do
+          for s in test:scope test:retention test:t1318 test:t1323 test:t1335 test:t1336 test:t1337 test:t1338 test:t1339 test:t1340 test:t1341 test:t1346 test:t1348 test:t1353 test:t1350 test:t1355 test:t1356 test:t1351 test:t1347 test:t1361 test:t1364 test:t1365 test:t1362 test:seed test:h01g test:h01h test:p1 test:p2 test:p3 test:p4 test:m6 test:m7 test:responsive test:cam-ui-001 test:p4:smoke; do
             echo "== $s =="
             npm run "$s" || exit 1
           done
+        env:
+          SKIP_BUILD: "1"
 
   security:
     name: Security scans (gitleaks + semgrep + trivy)
